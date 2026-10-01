@@ -12,17 +12,21 @@ Run it (from this folder):
 Controls
 --------
     Arrow keys ... move the agent        (HUMAN mode)
-    + / - ........ speed up / slow down  (WATCH mode)
+    + / - ........ speed up / slow down  (WATCH / TRAINED modes)
     R ............ restart the episode
-    SPACE ........ switch between HUMAN and WATCH mode
+    SPACE ........ cycle to the next mode
     ESC or Q ..... quit
 
 Modes
 -----
-    HUMAN : you play the maze yourself — the best way to FEEL what
-            the task demands before asking an agent to learn it.
-    WATCH : a mindless random agent stumbles around by itself —
-            comedy today, a baseline to beat after training.
+    HUMAN   : you play the maze yourself — the best way to FEEL what
+              the task demands before asking an agent to learn it.
+    WATCH   : a mindless random agent stumbles around by itself —
+              the baseline to beat.
+    TRAINED : the GRADUATE from train.py plays greedily (no random
+              moves, no learning — pure performance). Needs
+              q_table.json next to this file (run: python train.py);
+              otherwise a hint banner explains what to do.
 
 The window talks to the world only through the same two calls
 everything else uses (reset / step) — exactly how Gymnasium's own
@@ -30,10 +34,12 @@ environments render themselves. Nothing here knows the maze rules;
 environment.py remains the single source of truth.
 """
 
+import os
 import random
 
 import pygame
 
+from agent import QAgent
 from environment import (
     GridWorld, UP, DOWN, LEFT, RIGHT, N_ACTIONS, MAX_STEPS,
     EMPTY, WALL, GOAL, PIT,
@@ -88,9 +94,41 @@ C_TEXT     = (235, 235, 235)   # HUD text
 C_TEXT_DIM = (170, 175, 185)   # secondary HUD text
 C_MODE_HUMAN = (90, 160, 255)  # "HUMAN" badge color
 C_MODE_WATCH = (255, 170, 60)  # "WATCH" badge color
+C_MODE_TRAINED = (110, 225, 150)  # "TRAINED" badge color
 C_WIN  = (80, 220, 120)        # win banner
 C_LOSE = (255, 95, 85)         # loss banner
 C_TIME = (255, 210, 90)        # timeout banner
+
+# The mode cycle that SPACE walks through, and each mode's badge color.
+MODES = ("HUMAN", "WATCH", "TRAINED")
+MODE_COLORS = {
+    "HUMAN": C_MODE_HUMAN,
+    "WATCH": C_MODE_WATCH,
+    "TRAINED": C_MODE_TRAINED,
+}
+
+
+def next_mode(current):
+    """The mode SPACE switches to: HUMAN -> WATCH -> TRAINED -> HUMAN."""
+    return MODES[(MODES.index(current) + 1) % len(MODES)]
+
+
+# The trained brain lives next to this file (train.py saves it there),
+# so it works no matter which folder you launched python from.
+Q_TABLE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "q_table.json")
+
+
+def load_trained_agent(path=Q_TABLE_PATH):
+    """Load the graduate from disk, or None if there isn't one yet.
+
+    Returning None (instead of raising) lets the window degrade
+    gracefully: no q_table.json -> friendly hint banner, no crash.
+    """
+    try:
+        return QAgent.load(path)
+    except (OSError, ValueError, KeyError):
+        return None        # missing file / half-written / wrong shape
 
 # Map each of our integer actions to a keyboard key.
 KEY_TO_ACTION = {
@@ -167,41 +205,57 @@ def draw_hud(screen, env, ui):
     pygame.draw.rect(screen, C_HUD_BG, hud_rect, border_radius=10)
 
     # --- line 1: mode badge + step counter + running score ----------
+    # Badge: text on a colored patch sized to fit (12px total margin).
+    # The TRAINED badge is the longest word in the HUD, so every width
+    # below is chosen to keep the worst case inside the window.
     mode = ui["mode"]
-    mode_color = C_MODE_HUMAN if mode == "HUMAN" else C_MODE_WATCH
-    badge = font(22).render(f" {mode} ", True, C_BG)
-    badge_bg = pygame.Surface(badge.get_size())
-    badge_bg.fill(mode_color)
+    badge_text = font(22).render(mode, True, C_BG)
+    badge_bg = pygame.Surface((badge_text.get_width() + 12,
+                               badge_text.get_height()))
+    badge_bg.fill(MODE_COLORS[mode])
     badge_x = hud_rect.x + 12
     screen.blit(badge_bg, (badge_x, hud_rect.y + 10))
-    screen.blit(badge, (badge_x, hud_rect.y + 10))
+    screen.blit(badge_text, (badge_x + 6, hud_rect.y + 10))
 
     info = font(22).render(
         f"  STEP {env.steps}/{MAX_STEPS}   REWARD {ui['reward']:+.1f}",
         True, C_TEXT,
     )
-    info_x = badge_x + badge.get_width() + 6
+    info_x = badge_x + badge_bg.get_width() + 6
     screen.blit(info, (info_x, hud_rect.y + 10))
 
-    # Watch mode only: current speed level as a live multiplier.
-    if mode == "WATCH":
+    # Timer modes (WATCH / TRAINED) show the current speed as a
+    # multiplier — small font so the TRAINED badge + worst-case
+    # numbers (100/100, -10.0) still fit the window.
+    if mode in ("WATCH", "TRAINED"):
         speed = SPEED_BASE_MS / SPEED_LEVELS_MS[ui["speed_i"]]
-        speed_img = font(19).render(f"   {speed:.1f}x", True, C_MODE_WATCH)
-        screen.blit(speed_img, (info_x + info.get_width(), hud_rect.y + 12))
+        speed_img = font(17).render(f" {speed:.1f}x", True, MODE_COLORS[mode])
+        screen.blit(speed_img,
+                    (info_x + info.get_width() + 4, hud_rect.y + 14))
 
     # --- line 2: control hints (they change with the mode) -----------
     # Kept short on purpose: longer text would clip at the window edge.
     if mode == "HUMAN":
-        hint = "[arrows] move  [R] restart  [SPACE] watch  [ESC] quit"
+        hint = "[arrows] move  [SPACE] modes  [R] restart  [ESC] quit"
     else:
-        hint = "[+/-] speed  [SPACE] play  [R] restart  [ESC] quit"
+        hint = "[+/-] speed  [SPACE] modes  [R] restart  [ESC] quit"
     screen.blit(font(16).render(hint, True, C_TEXT_DIM),
                 (hud_rect.x + 12, hud_rect.y + 47))
 
 
 def draw_outcome(screen, env, ui):
-    """Big banner across the middle once the episode is over."""
+    """Big banner across the middle: episode result, or a notice
+    (e.g. "you picked TRAINED but there's no trained agent yet")."""
     if ui["outcome"] is None:
+        # No episode result -> show the notice, if the mode set one.
+        notice = ui.get("notice")
+        if not notice:
+            return
+        band = pygame.Surface((WIDTH, 100), pygame.SRCALPHA)
+        band.fill((10, 12, 16, 190))
+        screen.blit(band, (0, (PAD + BOARD_H) // 2 - 50))
+        big = font(24).render(notice, True, C_TIME)
+        screen.blit(big, big.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 60)))
         return
 
     banner = {
@@ -265,10 +319,11 @@ def run():
 
     env = GridWorld()
     ui = {"mode": "HUMAN", "reward": 0.0, "outcome": None,
-          "speed_i": SPEED_DEFAULT_I}
+          "speed_i": SPEED_DEFAULT_I, "notice": None}
     restart(env, ui)
+    trained = None   # loaded lazily when TRAINED mode is entered
 
-    watch_timer = 0.0   # counts ms until the next random move/pause
+    watch_timer = 0.0   # counts ms until the next auto-move/pause
 
     running = True
     while running:
@@ -287,7 +342,14 @@ def run():
                     restart(env, ui)
                     watch_timer = 0.0
                 elif event.key == pygame.K_SPACE:
-                    ui["mode"] = "WATCH" if ui["mode"] == "HUMAN" else "HUMAN"
+                    ui["mode"] = next_mode(ui["mode"])
+                    ui["notice"] = None
+                    if ui["mode"] == "TRAINED":
+                        # (Re)load so a fresh `python train.py` run is
+                        # picked up without restarting the window.
+                        trained = load_trained_agent()
+                        if trained is None:
+                            ui["notice"] = "No trained agent - run: python train.py"
                     watch_timer = 0.0
                 elif event.key in (pygame.K_EQUALS, pygame.K_PLUS,
                                    pygame.K_KP_PLUS):
@@ -301,15 +363,22 @@ def run():
                     # Your keypress IS the policy in human mode.
                     apply_step(env, ui, KEY_TO_ACTION[event.key])
 
-        # ---- 2. WATCH MODE acts on a timer, not on events ------------
-        if ui["mode"] == "WATCH":
+        # ---- 2. TIMER MODES act on a timer, not on events ------------
+        # WATCH and TRAINED share the clock, speed ladder, and
+        # auto-restart; they differ only in WHO picks the moves.
+        if ui["mode"] in ("WATCH", "TRAINED") and not ui["notice"]:
             watch_timer += elapsed
             step_ms = SPEED_LEVELS_MS[ui["speed_i"]]   # current speed
             if not env.done and watch_timer >= step_ms:
                 watch_timer = 0.0
-                # A random policy: no thinking, just luck. This is the
-                # exact line the trained agent will replace later.
-                apply_step(env, ui, random.randrange(N_ACTIONS))
+                if ui["mode"] == "WATCH":
+                    # A random policy: no thinking, just luck.
+                    action = random.randrange(N_ACTIONS)
+                else:
+                    # The graduate: pure exploitation (explore=False).
+                    action = trained.choose_action(env.agent_pos,
+                                                   explore=False)
+                apply_step(env, ui, action)
             elif env.done and watch_timer >= WATCH_PAUSE_MS:
                 watch_timer = 0.0
                 restart(env, ui)   # auto-start the next attempt

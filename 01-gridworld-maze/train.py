@@ -30,10 +30,15 @@ Run it:
 """
 
 import json
+import os
 import time
 
 from agent import QAgent
 from environment import GridWorld, MAX_STEPS
+
+# Save next to THIS file (not whatever folder you launched python
+# from) — play.py looks for q_table.json in exactly this location.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------------
 # THE KNOBS — hyperparameters (change these, change everything)
@@ -45,11 +50,8 @@ EPSILON_START = 1.0    # start as a pure explorer...
 EPSILON_MIN = 0.05     # ...end as a 95% exploiter
 EPSILON_DECAY = 0.995  # multiply epsilon by this after every episode
 LOG_EVERY = 100        # print a progress line every N episodes
-SAVE_Q = "q_table.json"
-SAVE_LOG = "training_log.json"
-
-# How a finished episode is labeled (from the environment's info dict).
-OUTCOME_LABEL = {"goal": "GOAL", "pit": "PIT", "timeout": "TIME"}
+SAVE_Q = os.path.join(BASE_DIR, "q_table.json")
+SAVE_LOG = os.path.join(BASE_DIR, "training_log.json")
 
 
 def train(episodes=EPISODES, alpha=ALPHA, gamma=GAMMA,
