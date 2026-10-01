@@ -1,9 +1,6 @@
-# I'm Learning Reinforcement Learning — One Maze at a Time
+# Reinforcement Learning fundamental projects
 
-> This is my hands-on playground for learning RL fundamentals. I'm a
-> beginner writing everything from scratch (no Gym, no Stable-Baselines)
-> so that I actually understand each piece. This README is my study
-> notes: what I built, what I understood, and how to play with it.
+As the title suggests this project's purpose is to learn RL, they are a bunch of beginner-friendly projects, starting with the custom grid world maze navigation, then the cart pole inverted pendulum, the lunar lander, classic arcade, Atari Breakout or Pong, and the lastly an algorithmic trading agent. We will start with the first one, custom grid world maze navigation. I have my environment set up as you can see.
 
 ![HUMAN mode](01-gridworld-maze/screenshots/human.gif)
 
@@ -26,12 +23,8 @@ So my goal for this project was:
 4. **Prove it learned** — charts of the training run and a map of what
    the agent believes about every cell.
 
-If you're in the same boat (curious but overwhelmed by RL theory), I
-hope building this in order — world → brain → school → window →
-report card — gives you the same "oh, THAT's what that means" moments
-it gave me.
 
-## The concepts I learned (in my own words)
+## Important concepts
 
 ### 1. The agent–environment loop
 
