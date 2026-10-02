@@ -12,7 +12,7 @@ screenshots — this file is just the map.
 | # | Project | Status |
 |---|---------|--------|
 | 01 | [Grid World Maze Navigation](01-gridworld-maze/README.md) | ✅ done |
-| 02 | [Cart-Pole Inverted Pendulum](02-cart-pole/README.md) | 🚧 in progress |
+| 02 | [Cart-Pole Inverted Pendulum](02-cart-pole/README.md) | ✅ done |
 | 03 | Lunar Lander | planned |
 | 04 | Classic arcade game | planned |
 | 05 | Atari (Breakout or Pong) | planned |

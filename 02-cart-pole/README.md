@@ -1,6 +1,6 @@
 # Project 2 — Cart-Pole Inverted Pendulum
 
-Status: built and tested — environment → agent → train → play → charts,
+Status: done — environment → agent → train → play → charts → GIFs,
 54 checks green.
 
 ## The goal
@@ -132,7 +132,9 @@ same line twice.
 ├── train.py            # THE SCHOOL: shaping, exams, diploma, savings
 ├── play.py             # THE WINDOW: HUMAN / WATCH / LIVE / TRAINED
 ├── visualize.py        # THE REPORT CARD: curves + policy slices
+├── capture_media.py    # the camera that recorded the GIFs below
 ├── test_*.py           # 54 checks: every claim above is tested
+├── screenshots/        # the GIFs (re-record with: python capture_media.py)
 ├── charts/             # generated report cards (python visualize.py)
 ├── q_table.json        # the trained brain   (after python train.py)
 └── training_log.json   # the training diary  (after python train.py)
@@ -154,9 +156,9 @@ python test_play.py
 python test_visualize.py
 ```
 
-The official run: **trained in 22.8 s**, best exam at episode 10000
-= 100% limit hits, and the saved brain reloaded for greedy play
-scored **497.4 avg steps / 99% wins**.
+The official run: **trained in 23.7 s**, best exam at episode 7000
+= 98% limit hits / 493 avg steps, and the saved brain reloaded for
+greedy play scored **489.9 avg steps / 97% wins**.
 
 ## How to play the game
 
@@ -182,10 +184,19 @@ and watch the pole swing left. The little yellow arrow shows which
 way I just pushed. This is the fastest way to understand why
 balancing is hard *before* asking an agent to learn it.
 
+The GIF below is my recorded run: a simple "push the way it leans"
+rule holds for 60 ticks, then I push the wrong way on purpose — and
+it dies within six ticks.
+
+![My run: balance 60 ticks, then one deliberate mistake](screenshots/human.gif)
+
 ### Mode 2 — WATCH: the random agent (the baseline)
 
 A mindless agent picks LEFT/RIGHT at random every tick and dies in
-~10–15 ticks. The baseline to beat.
+~10–15 ticks. The baseline to beat — seed 30 below: exactly 14
+ticks of flailing.
+
+![Random agent flails and dies after 14 ticks](screenshots/watch.gif)
 
 ### Mode 3 — LIVE: watching the brain fill itself
 
@@ -197,6 +208,8 @@ best exam so far (B…%)**. `+ / −` changes training speed (4–500
 episodes/second), **TAB** fast-forwards the current stage (and saves
 progress at every stage boundary — the brain is never lost mid-run).
 
+![Training flies in the HUD while the scene replays the best play](screenshots/live.gif)
+
 Safety net: entering LIVE (or TRAINED, or V) with no `q_table.json`
 dumps a warning banner and starts training *automatically* behind it.
 
@@ -205,14 +218,17 @@ dumps a warning banner and starts training *automatically* behind it.
 Pure exploitation — `explore=False`, no learning, no random moves.
 It plays for as long as it can balance; `time_limit` (surviving all
 500 ticks) is the **good** ending and gets a green "SURVIVED ALL
-500!" banner, while `pole_fell` / `cart_out` get red ones.
+500!" banner, while `pole_fell` / `cart_out` get red ones. The GIF
+is the real saved brain going the full distance (seed 9):
+
+![The graduate balancing all 500 ticks](screenshots/trained.gif)
 
 | Mode     | Who decides      | What I see                    |
 |----------|------------------|-------------------------------|
 | HUMAN    | me (←/→)         | the pole swings the "wrong" way |
 | WATCH    | `random`         | dead in ~12 ticks             |
 | LIVE     | the learner      | ε falling, B% climbing, smarter replays |
-| TRAINED  | the Q-table      | 497-tick balance runs         |
+| TRAINED  | the Q-table      | 490-tick balance runs         |
 
 ## How I check that it actually learned
 
@@ -253,11 +269,13 @@ always shows the world as this brain actually sees it.
   (`FALL_PENALTY`), but finding it took chart-reading.
 - **Same seed, 98% → 0%.** Training is chaotic. That's *why* the
   diploma system exists — never trust the last brain, trust the best
-  exam.
+  exam. The win-rate chart above shows it inside ONE run: the line
+  climbs to ~35%, crashes to near 0%, and repeats — five separate
+  "it's learning!" moments that were really dips in between.
 - **Training scores ≠ greedy scores.** The final 100 *training*
-  episodes average ~305 steps / 11% limit hits — because ε = 0.05
+  episodes average ~172 steps / 0 limit hits — because ε = 0.05
   still injects a random push every ~20 ticks, which is fatal at
-  400+ steps. The *greedy* evaluation of the same brain: **497 / 99%**.
+  400+ steps. The *greedy* evaluation of the same brain: **490 / 97%**.
   Exam time switches exploration off, and that difference is now
   visible in both the HUD and the README.
 - **A one-line axis bug shipped a wrong picture.** My first policy
@@ -273,7 +291,6 @@ always shows the world as this brain actually sees it.
 - **Hyperparameter experiments**: vary alpha/gamma/q_init and compare
   curves — q_init = 0 (textbook ignorance) vs 50 (optimism) is a
   one-line A/B test.
-- **Record GIFs** of the four modes, project-1 style.
 - Then, eventually: **pole on both ends / SwingUp** as a harder
   reward-design puzzle.
 
