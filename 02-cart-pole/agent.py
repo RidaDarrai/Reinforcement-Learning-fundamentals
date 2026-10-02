@@ -51,6 +51,20 @@ Values OUTSIDE a range (a pole at 20° during its death thump, a
 cart at 9 m/s) clip into the nearest edge bucket — the world may
 leave the lines we drew, the table must not crash.
 
+OPTIMISM AS EXPLORATION (the bug this fixes — remember it)
+-----------------------------------------------------------
+Our first trained agents kept dying THE EXACT SAME WAY, because
+the Q-value of an action nobody had tried yet stayed at 0.0, and
+0.0 beats any value in a death zone (where everything is bad).
+The untried RIGHT button never got a chance.
+
+The fix is a one-line change with a big idea: fresh rows start at
+q_init = 50.0 (half of "perfect play" for gamma=0.99), NOT 0.0 —
+every unvisited possibility is TOLD it's great, and reality knocks
+it down on contact. An action you've never tried now looks
+ATTRACTIVE instead of worthless, so it gets tried. Optimism is
+exploration you don't have to pay for with random moves.
+
 API UNCHANGED FROM PROJECT 1:
 
     choose_action(state)              -> LEFT (0) or RIGHT (1)
@@ -61,9 +75,10 @@ the brain (self.binner), so callers never think about buckets.
 
 ONE MORE THING SAVED ALONGSIDE THE SCORECARD
 ---------------------------------------------
-save() also writes the binner's config. A brain without its eyes
-is useless: loading must bucket identically, or today's zip codes
-point at yesterday's wrong memories.
+save() also writes the binner's config AND the q_init optimism
+level. A brain without its eyes (or its attitude) is useless:
+loading must bucket identically, or today's zip codes point at
+yesterday's wrong memories.
 """
 
 import json
@@ -74,6 +89,11 @@ import random
 DEFAULT_ALPHA = 0.1     # learning rate: trust experience gradually
 DEFAULT_GAMMA = 0.99    # discount: future rewards still count
 DEFAULT_EPSILON = 1.0   # start as a pure explorer
+
+# The starting value of a brand-new row (see "OPTIMISM AS
+# EXPLORATION" at the top): half of perfect play for gamma=0.99,
+# where even a flawless run can't score much past ~100.
+DEFAULT_Q_INIT = 50.0
 
 # How many buckets per dimension -> table size 10*8*12*8 = 7,680.
 DEFAULT_N_BINS = (10, 8, 12, 8)
@@ -152,7 +172,7 @@ class QAgent:
 
     def __init__(self, n_actions, alpha=DEFAULT_ALPHA,
                  gamma=DEFAULT_GAMMA, epsilon=DEFAULT_EPSILON,
-                 binner=None):
+                 binner=None, q_init=DEFAULT_Q_INIT):
         """
         Args:
             n_actions: how many distinct moves exist (2 here:
@@ -163,17 +183,22 @@ class QAgent:
             epsilon: exploration rate (probability of a random move)
             binner:  custom StateBinner (default: the standard
                      ±2.4 m / ±12° split described at the top)
+            q_init:  starting value of brand-new rows (default 50.0
+                     = strategic optimism; pass 0.0 for textbook
+                     "ignorance starts at zero")
         """
         self.n_actions = n_actions
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
+        self.q_init = q_init
         self.binner = binner if binner is not None else StateBinner()
 
         # THE SCORECARD: bucket-key -> list of n_actions floats.
         # Dict (not a pre-filled array) because most of the 7,680
-        # buckets are never visited. Missing rows auto-create as
-        # all-zero in get_q(): zero = "no experience yet".
+        # buckets are never visited. Missing rows auto-create in
+        # get_q() filled with q_init — optimism, not ignorance
+        # (see the module docstring for why that saved us).
         self.q_table = {}
 
     # ------------------------------------------------------------------
@@ -183,12 +208,13 @@ class QAgent:
         """Return this state's Q-values, creating the row if new.
 
         `state` is the RAW four floats — the binner converts them
-        to a bucket key first. New rows start [0.0, 0.0]: the
-        honest value of complete ignorance.
+        to a bucket key first. New rows start [q_init, q_init]:
+        50.0 of pure optimism, so unseen possibilities look worth
+        trying (reality lowers the number on the first visit).
         """
         key = self.binner(state)
         if key not in self.q_table:
-            self.q_table[key] = [0.0] * self.n_actions
+            self.q_table[key] = [self.q_init] * self.n_actions
         return self.q_table[key]
 
     # ------------------------------------------------------------------
@@ -269,6 +295,9 @@ class QAgent:
             "alpha": self.alpha,
             "gamma": self.gamma,
             "epsilon": self.epsilon,
+            # Travel with the brain: the optimism level decides what
+            # ANY future unseen row gets created with.
+            "q_init": self.q_init,
             # Without these, a loaded brain would bucket the world
             # differently and read the WRONG rows. Eyes travel
             # with the scorecard.
@@ -305,6 +334,9 @@ class QAgent:
             gamma=data["gamma"],
             epsilon=data["epsilon"],
             binner=binner,
+            # Files saved before this field existed get plain
+            # zero-ignorance (they were trained that way anyway).
+            q_init=data.get("q_init", 0.0),
         )
         for key, values in data["q_table"].items():
             bucket_key = tuple(int(x) for x in key.split(","))
@@ -330,13 +362,20 @@ if __name__ == "__main__":
     print(f"table could hold {binner.n_states:,} rows; "
           f"we only ever store visited ones\n")
 
-    # Now the same hand-checks as project 1 — note: state is the
-    # raw float tuple, the binner works behind the scenes.
-    agent = QAgent(n_actions=2, alpha=0.5, gamma=0.9)
+    # The optimism story first — a brand-new brain's first look at
+    # ANY state: promising, not empty.
+    fresh = QAgent(n_actions=2)
+    print("\ndefault new row       :", fresh.get_q((0.0, 0.0, 0.0, 0.0)),
+          "  <- q_init optimism")
+
+    # Now the same hand-checks as project 1 — state is the raw float
+    # tuple, the binner works behind the scenes. q_init=0.0 keeps
+    # the arithmetic textbook-clean (like project 1's ignorance).
+    agent = QAgent(n_actions=2, alpha=0.5, gamma=0.9, q_init=0.0)
     state = (0.0, 0.0, 0.0, 0.0)
     balanced = (0.1, 0.0, math.radians(1), 0.0)
 
-    print("initial Q(upright)    :", agent.get_q(state))
+    print("q_init=0 start        :", agent.get_q(state))
     # Terminal tick: reward +1 (last survival point), episode over.
     # Hand check: 0 + 0.5 * (1 - 0) = 0.5
     agent.update(state, action=1, reward=+1.0,

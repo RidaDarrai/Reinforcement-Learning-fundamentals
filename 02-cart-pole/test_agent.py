@@ -89,8 +89,12 @@ def test_nearby_states_share_one_row():
 # 2. MATH — the TD update (hand-checked, like project 1)
 # ---------------------------------------------------------------
 def test_update_matches_hand_calculation():
-    """Q += alpha * (target - Q), target = r + gamma * max Q(next)."""
-    agent = QAgent(n_actions=2, alpha=0.5, gamma=0.9)
+    """Q += alpha * (target - Q), target = r + gamma * max Q(next).
+
+    q_init=0.0 = textbook ignorance, so the hand-math below starts
+    from clean zeros (the shipped default is optimistic 50.0 —
+    see test_unseen_states_start_optimistic)."""
+    agent = QAgent(n_actions=2, alpha=0.5, gamma=0.9, q_init=0.0)
     state = (0.0, 0.0, 0.0, 0.0)
     next_state = (0.1, 0.0, math.radians(1), 0.0)
     agent.get_q(next_state)[0] = 2.0      # best future = 2.0
@@ -105,7 +109,7 @@ def test_terminal_update_ignores_future():
     """done=True means target = reward, even if the future looks
     rich. Here: the last survival tick of a fall = +1.0, NOT
     gamma * whatever the next bucket promised."""
-    agent = QAgent(n_actions=2, alpha=0.5, gamma=0.9)
+    agent = QAgent(n_actions=2, alpha=0.5, gamma=0.9, q_init=0.0)
     state = (0.0, 0.0, 0.0, 0.0)
     next_state = (0.1, 0.0, math.radians(1), 0.0)
     agent.get_q(next_state)[0] = 100.0    # a juicy future value
@@ -115,11 +119,20 @@ def test_terminal_update_ignores_future():
     print(f"  terminal update ignores future: {got} (hand: 0.5)")
 
 
-def test_unseen_state_starts_as_zeros():
-    """Ignorance is 0.0 across the board — not None, not random."""
+def test_unseen_states_start_optimistic():
+    """Brand-new rows start [50.0, 50.0] — the fix for "the
+    untried action always loses": in a death zone where every
+    value is bad, a zero never beats anything, so RIGHT never got
+    tried. Optimism makes unvisited possibilities look promising;
+    reality knocks them down on the first visit.
+
+    q_init is a knob: pass 0.0 for classic ignorance."""
     agent = QAgent(n_actions=2)
-    assert agent.get_q((0.3, -1.0, math.radians(-5), 2.0)) == [0.0, 0.0]
-    print("  new bucket rows default to [0,0]")
+    assert agent.get_q((0.3, -1.0, math.radians(-5), 2.0)) == [50.0, 50.0]
+
+    plain = QAgent(n_actions=2, q_init=0.0)
+    assert plain.get_q((0.3, -1.0, math.radians(-5), 2.0)) == [0.0, 0.0]
+    print("  new rows: [50.0, 50.0] by default, [0,0] with q_init=0")
 
 
 # ---------------------------------------------------------------
@@ -127,7 +140,8 @@ def test_unseen_state_starts_as_zeros():
 # ---------------------------------------------------------------
 def test_greedy_picks_highest_q():
     """With explore=False, the best-scoring action always wins."""
-    agent = QAgent(n_actions=2, epsilon=1.0)   # even at epsilon=1.0!
+    agent = QAgent(n_actions=2, epsilon=1.0,   # even at epsilon=1.0!
+                   q_init=0.0)                 # clean slate for the test
     state = (0.0, 0.0, 0.0, 0.0)
     agent.get_q(state)[1] = 5.0                # action RIGHT dominates
     picks = {agent.choose_action(state, explore=False) for _ in range(50)}
@@ -148,7 +162,7 @@ def test_epsilon_one_actually_explores():
 
 def test_epsilon_zero_never_explores():
     """epsilon=0.0 must never pick the sub-optimal action."""
-    agent = QAgent(n_actions=2, epsilon=0.0)
+    agent = QAgent(n_actions=2, epsilon=0.0, q_init=0.0)
     state = (0.0, 0.0, 0.0, 0.0)
     agent.get_q(state)[1] = 1.0                # only RIGHT is good
     picks = {agent.choose_action(state) for _ in range(200)}
@@ -163,7 +177,8 @@ def test_save_load_round_trip():
     """A trained brain must survive JSON — INCLUDING its binner
     recipe. A brain without eyes reads the wrong rows, so we check
     both: same scores, same bucketing."""
-    agent = QAgent(n_actions=2, alpha=0.3, gamma=0.9, epsilon=0.25)
+    agent = QAgent(n_actions=2, alpha=0.3, gamma=0.9, epsilon=0.25,
+                   q_init=37.0)                # odd value: proves it travels
     state_a = (0.5, 1.0, math.radians(3), -1.0)
     state_b = (-1.0, -0.5, math.radians(-8), 2.0)
     agent.get_q(state_a)[0] = 7.5
@@ -176,11 +191,13 @@ def test_save_load_round_trip():
 
         assert clone.alpha == 0.3 and clone.gamma == 0.9
         assert clone.epsilon == 0.25 and clone.n_actions == 2
+        assert clone.q_init == 37.0, "optimism level lost in transit"
 
-        # Same scorecard (keys are bucket tuples again)...
+        # Same scorecard (keys are bucket tuples again; untouched
+        # entries keep the q_init they were born with)...
         assert clone.q_table == agent.q_table, "Q-table changed in transit"
-        assert clone.get_q(state_a) == [7.5, 0.0]
-        assert clone.get_q(state_b) == [0.0, -3.0]
+        assert clone.get_q(state_a) == [7.5, 37.0]
+        assert clone.get_q(state_b) == [37.0, -3.0]
 
         # ...and same eyes: the clone must bucket a raw state
         # EXACTLY like the original.
@@ -203,7 +220,7 @@ if __name__ == "__main__":
         test_nearby_states_share_one_row,
         test_update_matches_hand_calculation,
         test_terminal_update_ignores_future,
-        test_unseen_state_starts_as_zeros,
+        test_unseen_states_start_optimistic,
         test_greedy_picks_highest_q,
         test_epsilon_one_actually_explores,
         test_epsilon_zero_never_explores,
