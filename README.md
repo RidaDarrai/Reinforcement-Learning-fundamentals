@@ -143,12 +143,13 @@ this project is the tabular foundation first.
 ├── environment.py      # THE WORLD: maze, moves, rewards (Gym-style API)
 ├── agent.py            # THE BRAIN: Q-table + ε-greedy + TD update
 ├── train.py            # THE SCHOOL: fills the Q-table, saves results
-├── play.py             # THE WINDOW: pygame, HUMAN / WATCH / TRAINED modes
+├── play.py             # THE WINDOW: HUMAN / WATCH / LIVE / TRAINED
 ├── visualize.py        # THE REPORT CARD: learning curves + policy map
 ├── capture_media.py    # the camera that recorded the GIFs below
-├── test_*.py           # 31 checks: every claim above is tested
+├── test_*.py           # 45 checks: every claim above is tested
 ├── q_table.json        # the trained brain   (after python train.py)
-└── training_log.json   # the training diary  (after python train.py)
+├── training_log.json   # the training diary  (after python train.py)
+└── maze_random.json    # my random maze     (after pressing N, once)
 ```
 
 ## How I run it
@@ -158,7 +159,7 @@ pip install -r requirements.txt
 
 python train.py          # trains 2000 episodes in ~0.1 s, saves the brain
 python play.py           # the game window (see below)
-python visualize.py      # writes charts/learning_curves.png + policy_map.png
+python visualize.py      # writes charts/... (or press V inside play.py)
 
 python test_environment.py   # I run these whenever I change something
 python test_agent.py
@@ -169,7 +170,8 @@ python test_visualize.py
 
 Training results **persist**: `train.py` writes `q_table.json` to disk,
 so I can close everything and `play.py` still loads the same trained
-agent tomorrow.
+agent tomorrow. The maze persists the same way — `maze_random.json`
+remembers the random maze I generated until I generate another one.
 
 ## How to play the game
 
@@ -180,10 +182,27 @@ python play.py
 | Key            | What it does                                  |
 |----------------|-----------------------------------------------|
 | **Arrow keys** | move (only in HUMAN mode)                     |
-| **SPACE**      | cycle the mode: HUMAN → WATCH → TRAINED       |
-| **+ / −**      | speed up / slow down (WATCH & TRAINED)        |
+| **SPACE**      | cycle the mode: HUMAN → WATCH → LIVE → TRAINED |
+| **+ / −**      | speed up / slow down (WATCH, LIVE & TRAINED)  |
+| **N**          | generate a NEW random maze (it retrains)      |
+| **TAB**        | skip to the next training stage (LIVE)        |
+| **V**          | open the charts of the trained agent          |
 | **R**          | restart the episode                           |
 | **ESC / Q**    | quit                                          |
+
+### Which maze am I on?
+
+The **classic maze** on my first ever run. Press **N** and a freshly
+generated random maze becomes *the* maze: it's saved to
+`maze_random.json`, loaded again on every future launch, and replaced
+only when I press N again — I never get classic back (by design: one
+active maze, always the newest). The generator guarantees every maze
+is fair: solvable from S to G with a way around the pit, and still
+possible to blunder *into* the pit.
+
+Because the one agent was trained for the old maze, N shows a banner
+and **retrains it automatically** (~0.1 s) — the brain always matches
+the maze I'm playing.
 
 ### Mode 1 — HUMAN: me against the maze
 
@@ -203,15 +222,42 @@ below is why: after 69 hopeless wanders it falls into the pit (reward
 
 ![Random agent wanders 69 steps and falls into the pit](01-gridworld-maze/screenshots/watch.gif)
 
-### Mode 3 — TRAINED: my graduate
+### Mode 3 — LIVE: watching the brain fill itself
 
-SPACE again (needs `q_table.json` from `python train.py`, otherwise a
-hint banner tells me what to run). The trained agent plays **greedily**
-— no random moves, no learning, pure performance. It takes the optimal
-12-step route past the pit and wins with +8.9 every single time. The
-`+ / −` keys change how fast you watch it.
+SPACE again. This mode doesn't play the finished agent — it **runs a
+fresh training session in front of me**. The HUD counts episodes
+(EP 437/2000), shows which of the three stages I'm in, the live
+exploration rate ε, and the rolling win rate:
+
+| Stage        | ε range        | What the agent is doing          |
+|--------------|----------------|----------------------------------|
+| EXPLORING    | ε > 0.5        | mostly random moves — wandering  |
+| LEARNING     | 0.05 < ε ≤ 0.5 | finds getting cashed in          |
+| POLISHING    | ε = 0.05       | near-greedy, tuning the paths    |
+
+The board meanwhile animates the agent's **current best play** —
+rebuilt every few seconds, so it visibly gets smarter as the numbers
+climb. `+ / −` sets how fast episodes fly by (4 to 500 per second),
+**TAB** fast-forwards to the next stage, **R** replays the demo.
+
+And the safety net: if I enter LIVE without ever training, a warning
+banner is dumped on screen and training starts **automatically**
+behind it — I can't forget to launch it.
+
+### Mode 4 — TRAINED: my graduate
+
+SPACE again. The trained agent plays **greedily** — no random moves,
+no learning, pure performance. It takes the optimal 12-step route past
+the pit and wins with +8.9 every single time. The `+ / −` keys change
+how fast you watch it. If `q_table.json` is missing, the same safety
+net kicks in: warning banner first, then training runs by itself
+(~0.1 s) before the agent starts playing.
 
 ![Trained agent takes the optimal 12-step path](01-gridworld-maze/screenshots/trained.gif)
+
+**V** (in any mode) opens the report card — learning curves and policy
+map of the *current* agent — in its own window, training first if it
+was missing.
 
 Side by side, that's the whole story of this project:
 
@@ -219,11 +265,13 @@ Side by side, that's the whole story of this project:
 |----------|------------------|-----------------------|
 | HUMAN    | me (arrow keys)  | depends on my day :)  |
 | WATCH    | `random`         | −16.8, fell in pit    |
+| LIVE     | the learner      | watch ε fall, wins climb |
 | TRAINED  | the Q-table      | **+8.9, every time**  |
 
 ## How I check that it actually learned
 
-`python visualize.py` turns the saved files into two charts.
+`python visualize.py` — or **V** inside the game window — turns the
+saved files into two charts.
 
 **The learning curves** — raw episode scores are noisy, so I trust the
 bold moving-average line. I look for three things moving together:
@@ -237,7 +285,8 @@ found *shorter* paths, thanks to the −0.1/step tax.
 arrow Q-learning chose there, colored by how good that cell is (red →
 green). The green corridor from the start to the goal *is* the learned
 policy; the dark cells are walls, and the red zone around the pit is
-the agent's learned fear.
+the agent's learned fear. (The maze drawn comes from the training log,
+so charting a random maze draws *that* maze, not the classic one.)
 
 ![The Q-table drawn on the maze: arrows = best moves, color = value](01-gridworld-maze/charts/policy_map.png)
 
@@ -254,13 +303,14 @@ the agent's learned fear.
   the fear propagated backwards through γ, exactly like the theory
   says. Seeing the math show up in a picture was the best moment of
   the project.
-- **Everything is testable.** 31 checks cover walls, rewards, the TD
-  update by hand, ε-greedy, training quality, HUD layout, and charts —
-  so when I change a constant, I find out immediately.
+- **Everything is testable.** 45 checks cover walls, rewards, the TD
+  update by hand, ε-greedy, training quality, the random-maze
+  generator, LIVE-mode key handling, HUD layout, and charts — so when
+  I change a constant, I find out immediately.
 
 ## What I want to do next
 
-- **Step 6 — hyperparameter experiments**: vary alpha/gamma/epsilon and
+- **Step 7 — hyperparameter experiments**: vary alpha/gamma/epsilon and
   compare learning curves side by side.
 - A **second environment** (maybe a slippery-ice maze) to prove the
   agent doesn't secretly depend on this one maze.

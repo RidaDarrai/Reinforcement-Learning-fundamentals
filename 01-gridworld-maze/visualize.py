@@ -30,8 +30,10 @@ policy_map.png — the Q-table drawn on top of the maze
   color of cell    = how good the cell is (red bad -> green good)
   gray cell        = never visited (the agent's blind spots)
   green / red cell = goal / pit,  blue outline = start
+  (the maze itself comes from the training log, so a chart of a
+  random maze draws THAT maze — not the classic one)
 
-Run it (after python train.py):
+Run it (after python train.py — or press V inside play.py):
 
     python visualize.py
 """
@@ -189,14 +191,18 @@ def plot_learning_curves(history, window=100, save_path=None):
 # ==============================================================
 # 3. CHART TWO — what exactly did it learn?
 # ==============================================================
-def plot_policy_map(agent, save_path=None):
+def plot_policy_map(agent, save_path=None, maze_rows=None):
     """Draw the agent's Q-table on top of the maze itself.
 
     Every cell gets a face color (its best Q-value through the
     red->green heat scale) and, if visited, an arrow showing the
     action the agent would take standing there.
+
+    maze_rows: the text maze to draw on (from the training log —
+    see main()). Defaults to the classic maze.
     """
-    rows, cols = len(MAZE_MAP), len(MAZE_MAP[0])
+    rows_map = MAZE_MAP if maze_rows is None else maze_rows
+    rows, cols = len(rows_map), len(rows_map[0])
 
     # Best Q per visited cell = "how good is it to BE here".
     values = {state: max(q) for state, q in agent.q_table.items()}
@@ -211,7 +217,7 @@ def plot_policy_map(agent, save_path=None):
     # --- 1. paint every cell -------------------------------------
     for r in range(rows):
         for c in range(cols):
-            cell = MAZE_CHARS[MAZE_MAP[r][c]]
+            cell = MAZE_CHARS[rows_map[r][c]]
             if cell == WALL:
                 face = C_WALL
             elif cell == GOAL:
@@ -238,12 +244,12 @@ def plot_policy_map(agent, save_path=None):
     # --- 3. name the terminals, ring the start --------------------
     for r in range(rows):
         for c in range(cols):
-            cell = MAZE_CHARS[MAZE_MAP[r][c]]
+            cell = MAZE_CHARS[rows_map[r][c]]
             if cell in (GOAL, PIT):
-                ax.text(c, r, MAZE_MAP[r][c], ha="center", va="center",
+                ax.text(c, r, rows_map[r][c], ha="center", va="center",
                         fontsize=16, fontweight="bold", color="white",
                         zorder=5)
-            elif MAZE_MAP[r][c] == START_CHAR:
+            elif rows_map[r][c] == START_CHAR:
                 ax.add_patch(Rectangle((c - 0.5, r - 0.5), 1, 1,
                                        facecolor="none",
                                        edgecolor=C_START, lw=3,
@@ -299,8 +305,12 @@ def main(log_path=SAVE_LOG, q_path=SAVE_Q, out_dir=CHART_DIR, show=True):
     curves_png = os.path.join(out_dir, "learning_curves.png")
     policy_png = os.path.join(out_dir, "policy_map.png")
 
+    # New training logs carry the maze they trained on, so the policy
+    # map draws THAT maze. Old logs fall back to the classic one.
+    maze_rows = history.get("maze_rows")
+
     plot_learning_curves(history, save_path=curves_png)
-    plot_policy_map(agent, save_path=policy_png)
+    plot_policy_map(agent, save_path=policy_png, maze_rows=maze_rows)
 
     print(f"saved {curves_png}")
     print(f"saved {policy_png}")

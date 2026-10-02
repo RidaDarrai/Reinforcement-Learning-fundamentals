@@ -122,6 +122,67 @@ def test_policy_map_empty_brain_survives():
         shutil.rmtree(tmp)
 
 
+def test_policy_map_draws_the_given_maze_not_the_classic_one():
+    """Passing maze_rows swaps the drawing surface — the goal of a
+    random maze must land where THAT maze put it."""
+    custom = [
+        "..S...G",
+        "#######",
+        ".......",
+        "...#...",
+        "...#...",
+        ".......",
+        "#######",
+    ]
+    agent = QAgent(n_actions=4)
+    agent.q_table[(2, 0)] = [0.0, 2.0, 0.0, 0.0]   # one arrow
+    fig = visualize.plot_policy_map(agent, maze_rows=custom)
+    texts = [(t.get_position(), t.get_text()) for t in fig.axes[0].texts]
+    assert ((6.0, 0.0), "G") in texts, "custom goal not drawn"
+    # The start gets a blue ring, not a letter — at the CUSTOM 'S'.
+    ring = fig.axes[0].patches[-1]          # 49 cells, then the ring
+    assert tuple(ring.get_xy()) == (1.5, -0.5), ring.get_xy()
+    assert len(fig.axes[0].patches) == 7 * 7 + 1
+    plt.close(fig)
+    print("  custom maze's own G and start ring drawn in place")
+
+
+def test_main_passes_log_maze_rows_to_policy_map():
+    """main() must hand the log's stored maze to the policy map."""
+    tmp = tempfile.mkdtemp(prefix="viz_")
+    original = visualize.plot_policy_map
+    seen = {}
+
+    def spy(agent, save_path=None, maze_rows=None):
+        seen["rows"] = maze_rows
+        return original(agent, save_path=save_path, maze_rows=maze_rows)
+
+    try:
+        from train import train
+        agent, history = train(episodes=40, quiet=True)
+        log_path = os.path.join(tmp, "training_log.json")
+        q_path = os.path.join(tmp, "q_table.json")
+        with open(log_path, "w", encoding="utf-8") as f:
+            json.dump(history, f)
+        agent.save(q_path)
+
+        visualize.plot_policy_map = spy
+        code = visualize.main(log_path=log_path, q_path=q_path,
+                              out_dir=os.path.join(tmp, "charts"),
+                              show=False)
+        assert code == 0
+        assert seen["rows"] == history["maze_rows"], \
+            "policy map did not receive the log's maze"
+    finally:
+        visualize.plot_policy_map = original
+        shutil.rmtree(tmp)
+    # Old logs (no maze_rows) fall back to the classic maze.
+    fig = visualize.plot_policy_map(QAgent(n_actions=4))
+    assert fig is not None
+    plt.close(fig)
+    print("  main() forwards the log's maze rows (classic fallback works)")
+
+
 # ---------------------------------------------------------------
 # MAIN: missing input is a friendly message, not a traceback
 # ---------------------------------------------------------------
@@ -173,8 +234,10 @@ if __name__ == "__main__":
         test_curves_build_and_save,
         test_policy_map_walkable_cells_get_arrows,
         test_policy_map_empty_brain_survives,
+        test_policy_map_draws_the_given_maze_not_the_classic_one,
         test_main_reports_missing_files,
         test_main_builds_both_charts,
+        test_main_passes_log_maze_rows_to_policy_map,
     ]
     for t in tests:
         t()
