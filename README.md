@@ -33,10 +33,10 @@ RL fundimentals/
 All these projects follow the same step-by-step guide. no Gym, no
 Stable-Baselines : 
 
-Step 1 : the 'envirenment.py' file, defines the world physics, contact rules, reward components.  [cite: 1]
-Step 2 : the 'agent.py' file, defines the brain.  [cite: 1]
-step 3 : the 'train.py' file, takes the world (environment.py) and the empty brain (agent.py) and puts them together.  [cite: 1]
-step 4 : the 'play.py' file, displays the results of the training and the environment in a PyGame window. These results are often saved in JSON files.  [cite: 1]
+Step 1 : the 'envirenment.py' file, defines the world physics, contact rules, reward components.  <br>
+Step 2 : the 'agent.py' file, defines the brain. <br>
+step 3 : the 'train.py' file, takes the world (environment.py) and the empty brain (agent.py) and puts them together. <br>
+step 4 : the 'play.py' file, displays the results of the training and the environment in a PyGame window. These results are often saved in JSON files. <br>
 
 
 ```bash
