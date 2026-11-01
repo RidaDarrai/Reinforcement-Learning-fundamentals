@@ -34,9 +34,13 @@ All these projects follow the same step-by-step guide. no Gym, no
 Stable-Baselines : 
 
 Step 1 : the 'envirenment.py' file, defines the world physics, contact rules, reward components
+
 Step 2 : the 'agent.py' file, defines the brain
+
 step 3 : the 'train.py' file, takes the world (environment.py) and the empty brain (agent.py) and puts them together
+
 step 4 : the 'play.py' file, displays the results of the training and the environment in a PyGame window. These results are often saved in JSON files.
+
 
 ```bash
 pip install -r requirements.txt   # once, at the top level
