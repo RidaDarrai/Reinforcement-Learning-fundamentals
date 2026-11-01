@@ -45,5 +45,3 @@ pip install -r requirements.txt   # once, at the top level
 
 ---
 
-*Build the world first, break it deliberately, test everything, and
-watch the curves — that's where the theory stops being scary.*
