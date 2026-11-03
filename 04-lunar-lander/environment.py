@@ -92,11 +92,20 @@ MAIN_ACC = 4.9          # m/s² the main engine accelerates the whole
                         # pointed sensibly. Fixed on purpose: like
                         # cart-pole, the agent picks a BUTTON, never
                         # a strength — discrete actions forever.
-SIDE_ANG_ACC = 1.5      # rad/s² the side thrusters add to the spin.
+SIDE_ANG_ACC = 6.0      # rad/s² the side thrusters add to the spin.
                         # Torque only: they rotate the lander but do
                         # NOT move its center of mass. A real RCS
                         # plume would nudge translation too — we skip
-                        # that coupling to keep the physics 3 lines.
+                        # that coupling in this pass (one change at a
+                        # time; Gym's side engines are also ~1-2
+                        # orders stronger AND they translate).
+                        # RUN-4 RETUNE: this was 1.5 — a tap gave 0.03
+                        # rad/s, so a marked attitude correction took
+                        # ~3.5 s of held taps: slower than any policy
+                        # can mark time for. 6.0 gives 0.12 rad/s per
+                        # tap (~10x faster response) while a whole
+                        # tap is still only 0.0024 rad of tilt — the
+                        # thrusters SERVE precision, not overwhelm it.
 
 
 # ==============================================================
@@ -162,12 +171,23 @@ N_ACTIONS = 4    # the MLP in step 2 gets exactly 4 output neurons.
 V_IMPACT       = 2.0   # m/s — touching ground FASTER than this is an
                        # instant hard-impact crash. Below it, a touch
                        # is survivable...
-V_LAND         = 1.0   # m/s — ...but to be SCORED a landing, BOTH legs
+V_LAND         = 1.5   # m/s — ...but to be SCORED a landing, BOTH legs
                        # down with |vx| and |vy| at or under this.
-                       # The band (1.0, 2.0] m/s is the RECOVERY BAND:
+                       # The band (1.5, 2.0] m/s is the RECOVERY BAND:
                        # sunk but not dead — burn the main engine and
                        # pull out (see section 8's demo).
-ANGLE_LAND_DEG = 10.0  # deg — level-enough to count as landed.
+                       # RUN-4 RETUNE: this was 1.0. Gym's +100 pays
+                       # for "came to rest", very forgiving; ours was
+                       # a needle. 1.5 keeps the recovery band OPEN
+                       # (a 1.5324 m/s touch is ONE main burn from a
+                       # scored landing — see section 8's pose B),
+                       # and V_IMPACT stays 2.0, so the band narrows
+                       # but survives.
+ANGLE_LAND_DEG = 15.0  # deg — level-enough to count as landed.
+                       # RUN-4 RETUNE: this was 10. Same lesson as
+                       # V_LAND: widen the SCORING band, never the
+                       # death band; 15 deg still demands a nearly
+                       # level arrival.
 ANGLE_LAND = math.radians(ANGLE_LAND_DEG)
 
 LAND_REWARD = 100.0    # terminal bonus for a good touchdown.
@@ -197,8 +217,9 @@ LAND_REWARD = 100.0    # terminal bonus for a good touchdown.
 # degrees worse". Hand values: a level 1 m/s graze -7.5, the meteor
 # arrival about -50 wherever it lands — a real gradient toward
 # slow, level arrivals, paid ONCE at the fatal tick (never as
-# per-tick nagging; 03's hammer-blow lesson). TIMEOUT still costs
-# 0 — hovering forever pays no bonus either (section 5's trap).
+# per-tick nagging; 03's hammer-blow lesson). TIMEOUT pays its OWN
+# bill now — TIMEOUT_BILL in section 5 — because runs 2-4 showed
+# a free timeout turns "hover-the-clock" into a bankable life.
 # Every number here is pinned in test_environment.py.
 CRASH_BASE      = 5.0    # flat fee for dying at all, any flavor
 CRASH_PER_SPEED = 2.5    # + per m/s of COM speed at the fatal tick
@@ -241,48 +262,98 @@ def crash_bill(vx, vy, theta):
 # info["components"] so training logs can chart them separately.
 #
 # 1) TERMINAL — landed +100; every death pays the GRADED bill of
-#    section 4 (run 2's lesson); timeout pays 0.
-# 2) SHAPING — potential-based: the agent is paid BACK for the
-#    distance it closes toward the pad, charged for opening it:
+#    section 4 (run 2's lesson); timeout now pays TIMEOUT_BILL
+#    (run 4's lesson: a FREE timeout made hovering the clock a
+#    bankable mediocre life — Gym pays you nothing for stalling).
 #
-#        Φ(x, y) = -SHAPING_SCALE · dist(x, y) / SHAPING_NORM
+# 2) SHAPING — potential-based on the FULL STATE (run 4's secret):
+#
+#        Φ(s) = -(SHAPING_SCALE * dist / SHAPING_NORM)
+#               -(SPEED_MONEY * hypot(vx, vy))
+#               -(TILT_MONEY * |wrapped tilt|)
 #        shaping(step) = Φ(after) − Φ(before)        <- a DIFFERENCE
 #
-#    dist is center-of-mass distance to the pad center (0, 0). Why
-#    differences (not a flat per-taxi-meter fee): they TELESCOPE.
-#    Mid-way fees cancel out, so an episode's total shaping is
-#    exactly Φ(far end) − Φ(start) — one number, hand-checkable in
-#    test_shaping_telescopes. Spawn sits ~70–76 m out → Φ(start) is
-#    about -105..-114; landed COM sits ~1.6 m up → Φ(land) ≈ -2.4.
-#    So a good landing BANKS ≈ +103..+112 of shaping, and returns
-#    (death bills graded, section 4) order out like:
-#        land                    ≈ +200
-#        hover the clock         ≈ +90   <- the escape hatch
-#        gentle graze at the pad ≈ +90   (-8..-14 bill + full bank)
-#        meteor arrival          ≈ +30..+55
+#    Why the state function is no longer distance-only: four
+#    official runs (3000 episodes each) landed ZERO times. The
+#    run-2/4 probes found the trained brain braking, but never
+#    enough — because under distance-only shaping, the marginal
+#    value of ONE braking tick (~0.1-0.3 of Q) sat inside the
+#    MLP's fitting noise, while gentleness was only priced
+#    POSTHUMOUSLY, on the fatal tick. The fix is Gym's: pay the
+#    gradient WHERE THE DECISION HAPPENS. A main-engine tick's
+#    Δv of 0.0656 m/s is now worth 15.0 * 0.0656 ≈ 1.0 of instant
+#    money — well clear of the noise — and every tick of drift
+#    (speed, tilt) starts ticking the meter the same way.
+#
+#    Because Φ is a state function, everything still TELESCOPES:
+#    mid-way fees cancel, an episode's total shaping is exactly
+#    Φ(far end) − Φ(start), and constant-speed hovering pays 0
+#    per tick (only CHANGES of speed/tilt cost or pay). The
+#    ladder hand values (spawn at (0,70) at rest: Φ = -1.5*70 =
+#    exactly -105.0, the one old pin that survives):
+#        land (slow, level, light fuel)    ≈ +215   terminal +100
+#            + ~+105 banked (the old +103 minus tucked-in speed
+#            money), fuel nibbles a little back
+#        hover the clock                   ≈ -150..-170  holding
+#            ~70 m up costs ~1/3-duty mains * 0.30/tick (~-100)
+#            + TIMEOUT_BILL -20 — the escape hatch is PRICED OUT
+#        meteor (do nothing from 70 m)     ≈ -165   bill ~-45
+#            + speed blood: Φ builds -15 per m/s during the fall,
+#            and only refund what you remove
 #    The gradient says TWICE as much now: get down there (the
-#    funnel) AND get down gently (the graded bill). Mediocrity
-#    banks money; only humility climbs past it.
+#    funnel), get down GENTLY (speed and tilt money, paid every
+#    tick they change), and don't just loiter (fuel + timeout).
 #
 #    KNOWN TRAPS, updated by the official runs:
-#    - run 1: the flat -100 bill drowned the funnel (section 4).
-#    - run 2: the flat -30 bill made hover and gentle crashing the
-#      two best mediocre lives but paid braking NOTHING, so the
-#      policy stayed a meteor. The graded bill is that fix. If run
-#      3 instead goes timeout-heavy (hover-the-clock wins too
-#      often), the next knob is a small timeout bill — tuned with
-#      data, not guessed.
+#    - run 1 (flat -100 bill): the bill drowned the funnel — the
+#      Q surface decayed into a "danger map" (section 4).
+#    - run 2 (flat -30 bill): braking paid nothing, so the policy
+#      stayed a meteor with exam returns +40..58 — improved, not
+#      fixed (section 4). The graded bill was that fix's half.
+#    - runs 3-4 (graded bill + fast decay): the brain learned to
+#      fight, but hit a ceiling: speed/tilt still cost money only
+#      at DEATH, angular authority was ~10x too weak, and a free
+#      timeout left hover-the-clock as the least-bad life. That
+#      full diagnosis is THIS retune: full-state Φ, priced
+#      timeout, real fuel, wider scoring band, strong thrusters.
+#    - NOT touched on purpose: spawn scatter stays 70 m up, x in
+#      +/-30 (SPAWN_ALTITUDE / SPAWN_X_RANGE) — navigation keeps
+#      its difficulty; the dense shaping + priced timeout should
+#      kill the trap without shrinking the map. If run 5 still
+#      times out or lands short of the pad, these are the next
+#      knobs — tuned with data, not guessed.
 #
-# 3) FUEL — score cost per ENGINE-BURNING tick. No tank, no dry-out
-#    failure: fuel is money, not oxygen (one less death mode to
-#    test). Magnitudes are small on purpose: a whole-episode full
-#    burn costs 20 — real pressure, never bigger than the terminal
-#    bills (03's lesson: shaping via hammer blows breaks DQN
-#    gradients).
+# 3) FUEL — score cost per ENGINE-BURNING tick, now at Gym's real
+#    prices (-0.30 main, -0.03 side per tick; hover-the-clock
+#    THERE costs ~-170, which is what truly kills the escape
+#    hatch). No tank, no dry-out: fuel is money, not oxygen (one
+#    less death mode to test). NOTE the size change: a full
+#    1000-tick main burn would now cost -300, bigger than any
+#    terminal bill — that is deliberate, it is what Gym charges,
+#    and unlike a hammer-blow bill it is PAID TICK BY TICK only
+#    while the engine runs, so wasting fuel is a choice, not a
+#    surprise. (Run 1's 0.02/0.005 prices were decoration.)
 SHAPING_SCALE = 150.0   # A — full money for closing 100 m.
 SHAPING_NORM  = 100.0   # m — distance that counts as "the whole way".
-FUEL_MAIN = 0.02        # per tick of main burn
-FUEL_SIDE = 0.005       # per tick of either side thruster
+SPEED_MONEY = 15.0      # per m/s of COM speed, inside Φ. Gym pays
+                        # ~13-20 points per m/s of speed removed —
+                        # 15 sits mid-band at OUR +100 scale. Braking
+                        # from 15 m/s banks up to +225; one brake tick
+                        # from 3 m/s pays ~1.0 (see potential()).
+TILT_MONEY  = 10.0      # per wrapped radian of tilt, inside Φ (same
+                        # [0, pi] fold as crash_bill, same attitude
+                        # semantics). Leveling from flat-on-side
+                        # banks ~+16; a full thruster tap tilts only
+                        # 0.0024 rad — costs 2.4e-5, a rounding error
+                        # for precision flying.
+TIMEOUT_BILL = -20.0    # terminal money on the timeout tick — the
+                        # priced-out escape hatch. Soft enough to
+                        # never drown a death bill, hard enough that
+                        # +90-shaping hovering stops being a life.
+FUEL_MAIN = 0.30        # per tick of main burn (was 0.02 — Gym's
+                        # price exactly; hover-the-clock there ~-170)
+FUEL_SIDE = 0.03        # per tick of either side thruster (was
+                        # 0.005 — Gym's side-engine price exactly)
 
 
 # ==============================================================
@@ -301,7 +372,10 @@ STATE_SCALE = (
     6.0,                # vx       ±6 m/s (spawn ±2, crashes land ~3)
     8.0,                # vy       ±8 m/s (terminal fall speed ~15)
     math.pi,            # theta    a half-flip counts as ±1
-    4.0,                # omega    ±4 rad/s (4 full burns of spin)
+    8.0,                # omega    ±8 rad/s (8 full burns of spin)
+                        # RUN-4 RETUNE: side authority grew 4x, so
+                        # realistic spins grew ~4x too — 8 rad/s
+                        # keeps the normalized spin inside ~[-1, 1].
     1.0, 1.0,           # legL/legR binary — already normalized
 )
 
@@ -374,16 +448,38 @@ class LunarLander:
     # ----------------------------------------------------------
     # 7a. potential() — the shaping ledger's per-state worth
     # ----------------------------------------------------------
-    def potential(self, x, y):
-        """Shaping potential Φ = −A · (distance to pad) / norm.
+    def potential(self):
+        """Shaping potential Φ — the WHOLE state's banked worth.
 
-        Distance is COM-to-pad-center. Pulling A/norm together:
-        Φ = −1.5 · dist(m). Hand values: spawn ≈ −105..−114,
-        landed (COM ~1.6 m up) ≈ −2.4, so landing banks ≈ +103..112.
-        Public on purpose — the telescoping test and step 5's
-        reward-decomposition chart both recompute it.
+            Φ(s) = -(SHAPING_SCALE * dist / SHAPING_NORM)
+                   -(SPEED_MONEY * hypot(vx, vy))
+                   -(TILT_MONEY * |wrapped theta|)
+
+        Three terms, one per ingredient of a gentle arrival (run 4's
+        lesson, the Gym secret): distance — the navigation funnel,
+        1.5 money per meter as before; speed — braking money, Gym
+        pays ~13-20 points per m/s removed, and a main-engine tick's
+        Δv of 0.0656 m/s is worth ~1.0 HERE, comfortably above the
+        MLP's Q-fitting noise (~0.2-0.3) that drowned the old
+        posthumous-only pricing; tilt — leveling money, folded into
+        [0, pi] the SAME way crash_bill() reads attitude, so 869
+        degrees of spin costs like "a bit past level", not 869
+        degrees worse. Because Φ is a STATE function, every term
+        telescopes: hovering at constant speed pays 0 per tick,
+        deceleration pays THAT tick, and an episode's total shaping
+        is one number — Φ(far end) − Φ(start).
+
+        Takes no arguments on purpose: it reads the CURRENT pose
+        (self), so there is ONE source of truth — reset(), step(),
+        the demos and the tests all call it on whatever is true
+        now. Public: the telescoping test recomputes it.
         """
-        return -SHAPING_SCALE * math.hypot(x, y) / SHAPING_NORM
+        turn = abs(math.fmod(self.theta, 2.0 * math.pi))  # fold into
+        if turn > math.pi:                                # [0, pi],
+            turn = 2.0 * math.pi - turn                   # like the bill
+        return (-SHAPING_SCALE * math.hypot(self.x, self.y) / SHAPING_NORM
+                - SPEED_MONEY * math.hypot(self.vx, self.vy)
+                - TILT_MONEY * turn)
 
     # ----------------------------------------------------------
     # 7b. reset() — a fresh attempt at the sky
@@ -411,8 +507,8 @@ class LunarLander:
         self.steps = 0
         self.done = False
         self.fuel_used = 0.0
-        self.prev_potential = self.potential(self.x, self.y)
-        return self.state
+        self.prev_potential = self.potential()  # the banked-ledger
+        return self.state                       # sync (full-state Φ)
 
     # ----------------------------------------------------------
     # 7c. step(action) — the heart of the world
@@ -526,15 +622,25 @@ class LunarLander:
             # (single-foot or recovery-band ticks: keep falling — the
             #  agent may arrest and land, or sink into a hull check)
 
-        # 2e. Still flying after 1000 ticks? The clock ends it, but
-        #     remembers nothing happened (no bonus, no bill).
+        # 2e. Still flying after max_steps ticks? The clock ends it
+        #     AND prices it: with distance shaping banked ~+90 by
+        #     hovering, a free timeout made hover-the-clock the best
+        #     mediocre life of runs 1-4 (and only 1 of ~3000 run-4
+        #     episodes even bothered dying of it — the trap was
+        #     worth exploiting and nobody noticed). Gym pays nothing
+        #     for stalling; TIMEOUT_BILL makes waiting the worst of
+        #     the non-death endings. (No DEATH_REASONS addition:
+        #     "timeout" stays a way of ENDING, not a way of dying,
+        #     and keeps its own bill out of the graded crash bill.)
         if reason is None and self.steps >= self.max_steps:
-            reason = "timeout"
+            terminal, reason = TIMEOUT_BILL, "timeout"
 
         # --- 3. THE MONEY — terminal + shaping + fuel ---------------
         # Shaping: the potential's CHANGE this tick (telescoping by
-        # construction — see section 5 and the shaping tests).
-        new_potential = self.potential(self.x, self.y)
+        # construction — the full-state Φ means the speed and tilt
+        # terms sit in the SAME difference; see section 5 and the
+        # shaping tests).
+        new_potential = self.potential()
         shaping = new_potential - self.prev_potential
         self.prev_potential = new_potential
 
@@ -653,13 +759,17 @@ if __name__ == "__main__":
     print(f"speed rules: land <= {V_LAND}, touch survives <= "
           f"{V_IMPACT}, level <= {ANGLE_LAND_DEG} deg | "
           f"bills: land {+LAND_REWARD:+.0f}; crash = -({CRASH_BASE} "
-          f"+ {CRASH_PER_SPEED}*speed + {CRASH_PER_TILT}*tilt)")
+          f"+ {CRASH_PER_SPEED}*speed + {CRASH_PER_TILT}*tilt); "
+          f"timeout {TIMEOUT_BILL:+.0f}")
+    print(f"shaping money per tick: dist {SHAPING_SCALE / SHAPING_NORM}"
+          f"/m | speed {SPEED_MONEY}/(m/s) | tilt {TILT_MONEY}/rad "
+          f"| fuel: main {FUEL_MAIN}, side {FUEL_SIDE} per tick")
 
     # --- pose A: plain free fall (three ticks) -----------------------
     env = LunarLander(seed=0)
     env.reset()
     env.x, env.y, env.vx, env.vy = 0.0, 70.0, 0.0, 0.0
-    env.prev_potential = env.potential(env.x, env.y)
+    env.prev_potential = env.potential()
     print("\n=== A: engines off, gravity speaks ===")
     env.render()
     for _ in range(3):
@@ -670,7 +780,7 @@ if __name__ == "__main__":
     # --- pose B: the RECOVERY BAND — touch too hard-ish, then save it
     env.done = False
     env.x, env.y, env.vx, env.vy, env.theta, env.omega = 0.0, 1.6, 0.0, -1.5, 0.0, 0.0
-    env.prev_potential = env.potential(env.x, env.y)
+    env.prev_potential = env.potential()
     print("\n=== B: touch at 1.5 m/s (too fast to score, too slow to die) ===")
     state, reward, done, info = env.step(IDLE)
     print(f"touch tick: legs={state[6]}{state[7]}, vy={state[3]:+.3f}, "
@@ -694,7 +804,7 @@ if __name__ == "__main__":
         env.vx, env.vy = 0.0, setup.get("vy", 0.0)
         env.theta, env.omega = 0.0, 0.0
         env.leg_l = env.leg_r = 0
-        env.prev_potential = env.potential(env.x, env.y)
+        env.prev_potential = env.potential()
         state, reward, done, info = env.step(IDLE)
         print(f"\n=== {name}: {why} ===")
         print(f"reason={info['reason']!r} ({info['crash_type']}), "

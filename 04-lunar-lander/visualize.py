@@ -129,7 +129,9 @@ SLICE_Y      = (0.0, CEILING_Y)                          # m; 0..80
 SLICE_VX     = (-STATE_SCALE[2], STATE_SCALE[2])         # m/s; +/-6
 SLICE_VY     = (-STATE_SCALE[3], STATE_SCALE[3])         # m/s; +/-8
 SLICE_TILT   = (-math.pi, math.pi)                       # rad; drawn as degrees
-SLICE_OMEGA  = (-STATE_SCALE[5], STATE_SCALE[5])         # rad/s; +/-4
+SLICE_OMEGA  = (-STATE_SCALE[5], STATE_SCALE[5])         # rad/s; +/-8
+                                                             # (RUN-4 retune:
+                                                             # tracks STATE_SCALE)
 
 
 # ==============================================================
