@@ -131,11 +131,11 @@ def test_epsilon_schedule_matches_trainer():
     otherwise the chart draws an exploration history that never
     happened."""
     tr = Trainer()                      # the official knobs
-    schedule = epsilon_schedule(1500, 1000, 0.05)
-    for e in range(0, 1500, 7):         # spot-check + boundaries
+    schedule = epsilon_schedule(3000, 300, 0.05)
+    for e in range(0, 3000, 7):         # spot-check + boundaries
         assert math.isclose(schedule[e], tr.epsilon_at(e), abs_tol=1e-12)
     assert schedule[0] == 1.0
-    assert schedule[999] > schedule[1000] == 0.05
+    assert schedule[299] > schedule[300] == 0.05
     assert schedule[-1] == 0.05
     print("  epsilon recompute: identical to Trainer.epsilon_at")
 

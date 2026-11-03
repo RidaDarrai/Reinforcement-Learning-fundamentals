@@ -55,7 +55,25 @@ LOG_PATH = os.path.join(HERE, "training_log.json")
 # THE SCHOOL'S DIALS (defaults = the official run; tests shrink them)
 # ==============================================================
 EPISODES = 3000              # one episode = one full attempt at landing
-EPSILON_DECAY_EPISODES = 1000  # 1.0 -> floor over this window (linear)
+EPSILON_DECAY_EPISODES = 300  # 1.0 -> floor over this window (linear)
+                             # RUN 3 POSTMORTEM: this was 1000, and the
+                             # final brain DEGENERATED — greedy argmax
+                             # (Q spread ~0.3, under the MLP's own
+                             # fitting noise) locked into "push NO
+                             # buttons ever": 96% IDLE, vy pinned at
+                             # free-fall 14.9 m/s, tilt frozen at 0.0,
+                             # 0 landings in 3000 episodes. The seed-7
+                             # probe with THIS window (300) instead
+                             # committed early and BUILT its own
+                             # braking corpus: median fatal speed
+                             # 14.7 -> 10.1 m/s, tilt down to 33 deg,
+                             # 14% MAIN near the ground, hull crashes
+                             # 46% -> 18%. Slow decay just filled the
+                             # replay with random meteors for 1000
+                             # episodes and then fit the danger map
+                             # harder; fast decay gives the policy
+                             # autonomy while it can still invent the
+                             # gentle phase from its own experiences.
 EPSILON_FLOOR = 0.05         # keeps a pinch of curiosity forever
 EXAM_EVERY = 50              # greedy exam cadence (training episodes)
 EXAM_EPISODES = 25           # exam length: 25 fresh spawns, no luck
