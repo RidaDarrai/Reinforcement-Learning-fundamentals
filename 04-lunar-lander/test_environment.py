@@ -324,12 +324,12 @@ def test_hard_impact_crash():
 
     assert done and info["reason"] == "crashed"
     assert info["crash_type"] == "impact"
-    assert info["components"]["terminal"] == -CRASH_PENALTY == -100.0
+    assert info["components"]["terminal"] == -CRASH_PENALTY == -30.0
     assert env.leg_l == 0 and env.leg_r == 0, "dead feet tick nothing"
-    # The bill is -100, but the tick still banked a hair of positive
+    # The bill is -30, but the tick still banked a hair of positive
     # shaping (it was falling TOWARD the pad), so the total sits just
-    # above -100 — verified exactly in the fuel/composition test.
-    assert -100.0 < reward < -99.0
+    # above -30 — verified exactly in the fuel/composition test.
+    assert -30.0 < reward < -29.0
     print(f"  hard impact: speed {-state[3]:.2f} > {V_IMPACT} -> "
           f"crashed, bill {info['components']['terminal']:+.0f}")
 
@@ -343,7 +343,7 @@ def test_missed_pad_crash():
 
     assert done and info["reason"] == "crashed"
     assert info["crash_type"] == "missed_pad"
-    assert info["components"]["terminal"] == -100.0
+    assert info["components"]["terminal"] == -30.0
 
     env = LunarLander(seed=0)
     _at(env, x=13.0, y=1.60, vy=-0.5)   # tips at 11.4 / 14.6: inside!
@@ -362,7 +362,7 @@ def test_hull_crash_and_precedence():
 
     assert done and info["reason"] == "crashed"
     assert info["crash_type"] == "hull"
-    assert info["components"]["terminal"] == -100.0
+    assert info["components"]["terminal"] == -30.0
     # Precedence proof: in this pose BOTH feet are ticked and every
     # landing inequality would pass — the hull check won anyway.
     assert env.leg_l == 0 and env.leg_r == 0, "crash preempts flags"
@@ -376,7 +376,7 @@ def test_out_of_bounds_and_edges():
     _at(env, x=WORLD_HALF_WIDTH + 0.5)
     state, reward, done, info = env.step(IDLE)
     assert done and info["reason"] == "out_of_bounds"
-    assert info["components"]["terminal"] == -100.0
+    assert info["components"]["terminal"] == -30.0
 
     env = LunarLander(seed=0)
     _at(env, x=WORLD_HALF_WIDTH)            # exactly on the edge

@@ -29,19 +29,24 @@ WHAT CHANGED vs 03's DQN (same three stabilizers, new numbers)
    diary must hold ~100 recent episodes of correlated adjacent
    steps before random sampling decorrelates them into signal.
 
-THE THREE DQN TRICKS (unchanged in spirit — they are why naive
-neural Q-learning does not explode):
+THE FOUR DQN TRICKS (three original + one run-1 amendment)
+-------------------------------------------------------------
 1. REPLAY BUFFER: store the last N transitions, train on RANDOM
    64-batches. Consecutive lander ticks look nearly identical
    (falling, falling, falling...) — learning from them in order
    chases its own tail.
-2. TARGET NETWORK: the TD target r + gamma * max Q_target(s') is
+2. TARGET NETWORK: the TD target's "how good was that move" half is
    computed by a FROZEN copy of the net, synced every
    TARGET_SYNC gradient steps. Without it the net aims at a target
    that moves every step.
 3. EPSILON-GREEDY: with probability epsilon pick a random button
    (explore), else the best Q (exploit). train.py decays it
    1.0 -> 0.05; here it is a stored dial.
+4. DOUBLE TARGETS — added after run 1 (see train_step): vanilla
+   max-over-actions targets over four near-tied heads produced a
+   flat action surface and zero landings in 3000 episodes. The
+   online net now CHOOSES the next button, the frozen net VALUES
+   it.
 
 API (compatible in shape with 02/03 so step 3's loop feels at home):
 
@@ -306,15 +311,17 @@ class DQNAgent:
     def train_step(self, batch):
         """ONE gradient step on a given batch (testable in isolation).
 
-        The DQN loss, piece by piece:
-            target = r                                  if done
-                   = r + gamma * max Q_target(s')       otherwise
+        The DOUBLE DQN loss, piece by piece:
+            target = r                                        if done
+                   = r + gamma * Q_target(s', argmax_a Q_online(s', a))
+                                                                     otherwise
             loss   = mean((target - Q_online(s,a))^2)
 
-        Crucial detail: Q_target comes from the FROZEN net (stable
-        aim), Q_online from the trainable net. Gradients flow ONLY
-        through Q_online — targets are detached (no_grad), or the
-        net would chase its own tail.
+        Crucial detail: the FROZEN net supplies the VALUE of the next
+        state's best action (stable aim) and the TRAINABLE net picks
+        WHICH action that is. Gradients affect nothing in the
+        target computation (no_grad), or the net would chase its
+        own tail.
         """
         # --- unpack the batch into column tensors ---------------------
         states = self._to_tensor([b[0] for b in batch])
@@ -331,13 +338,20 @@ class DQNAgent:
         # actually pressed — the loss only judges what we did.
         q_sa = self.online(states).gather(1, actions).squeeze(1)
 
-        # --- TD targets from the FROZEN net (no gradients) -------------
+        # --- TD targets: DOUBLE DQN (run 1's lesson) --------------------
+        # Vanilla DQN picks AND values the next action with the SAME
+        # frozen net. With four near-tied action heads the max
+        # operator systematically overestimates — run 1 (3000 vanilla
+        # episodes) showed it plainly: a value map with a nearly flat
+        # action dimension, exams swinging -15 to -92 on one policy.
+        # Double DQN splits the job:
+        #     WHICH action is best  -> the ONLINE net (it is learning)
+        #     HOW GOOD is that move -> the FROZEN net (stable aim)
+        # The done-mask semantics are unchanged.
         with torch.no_grad():
-            # max(1)[0]: best next-Q per row (greedy bootstrap — the
-            # Q-learning half of "Q-learning"; the neural half above).
-            max_next = self.target(next_states).max(1)[0]
-            # (1 - dones): zeroes the future on terminal ticks — a
-            # crash's target is exactly its -100 bill, nothing more.
+            best_next = self.online(next_states).argmax(1, keepdim=True)
+            max_next = self.target(next_states).gather(1, best_next) \
+                                                        .squeeze(1)
             target = rewards + self.gamma * (1.0 - dones) * max_next
 
         # --- descend ----------------------------------------------------

@@ -171,10 +171,27 @@ ANGLE_LAND_DEG = 10.0  # deg — level-enough to count as landed.
 ANGLE_LAND = math.radians(ANGLE_LAND_DEG)
 
 LAND_REWARD   = 100.0  # terminal bonus for a good touchdown.
-CRASH_PENALTY = 100.0  # terminal bill for ANY crash (hull, impact,
+CRASH_PENALTY = 30.0   # terminal bill for ANY crash (hull, impact,
                        # missed pad) and for leaving the world.
                        # TIMEOUT costs 0 — hovering forever pays no
                        # bonus either (see section 5's hover trap).
+                       #
+                       # RUN 1 POSTMORTEM (3000 episodes, seed 42):
+                       # this was 100, and the run landed ZERO times.
+                       # With a -100 bill larger than the whole
+                       # banked-shaping funnel, every episode ended
+                       # in a bill, the replay corpus never saw a
+                       # positive terminal, and the Q surface decayed
+                       # into a smooth "danger map" with a flat
+                       # action dimension (same value for all four
+                       # buttons). The same medicine 03's DQN took
+                       # mid-project: smaller terminal bills, let the
+                       # tiny rewards teach. -30 keeps the ordering
+                       # land (+200) > hover (~+95) > crash (+35..+75)
+                       # — hovering AT the pad is now a discoverable
+                       # intermediate skill, and slow hover-touch
+                       # accidents are how landings finally enter the
+                       # corpus. See section 5's trap note.
 
 DEATH_REASONS = ("landed", "crashed", "out_of_bounds", "timeout")
 
@@ -199,14 +216,23 @@ DEATH_REASONS = ("landed", "crashed", "out_of_bounds", "timeout")
 #    test_shaping_telescopes. Spawn sits ~70–76 m out → Φ(start) is
 #    about -105..-114; landed COM sits ~1.6 m up → Φ(land) ≈ -2.4.
 #    So a good landing BANKS ≈ +103..+112 of shaping, and returns
-#    look like:  land ≈ +200 | crash AT the pad ≈ 0 | crash far ≈ -100.
-#    The gradient now says: get to the pad, THEN be gentle.
+#    (after run 1's retune, crash bill -30) look like:
+#        land            ≈ +200
+#        hover the clock ≈ +95   <- the escape hatch, see below
+#        crash near pad  ≈ +75   (-30 bill + nearly full bank)
+#        crash far       ≈ +35   (-30 bill + partial bank)
+#    The gradient still says: get down there — but now even mediocre
+#    outcomes bank money, so there is a graded path of increasing
+#    value instead of everything-but-landing ending in a -100 bill.
 #
 #    KNOWN TRAP, flagged up front: hovering at the pad banks the
-#    potential once and then sits idle — worth ~+100, strictly less
-#    than landing's ~+200, so the math already prefers landing. If
-#    step 5's charts show timeout-heavy policies, the fix is a small
-#    timeout bill — tuned with data, not guessed.
+#    potential once and then sits idle — worth ~+95. That in-
+#    between reward is the POINT (run 1's lesson): it is strictly
+#    better than crashing (+35..75) and strictly worse than landing
+#    (+200), so the policy should descend, hover to survive, and
+#    then be pulled upward toward real touchdowns by landing's
+#    bigger prize. If a rerun goes timeout-heavy instead, the next
+#    knob is a small timeout bill — tuned with data, not guessed.
 #
 # 3) FUEL — score cost per ENGINE-BURNING tick. No tank, no dry-out
 #    failure: fuel is money, not oxygen (one less death mode to

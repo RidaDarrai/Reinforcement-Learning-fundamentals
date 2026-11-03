@@ -186,33 +186,35 @@ def test_update_warms_up():
 # THE BIG ONES — the learning rule, hand-checked
 # ---------------------------------------------------------------
 def test_td_loss_hand_recompute():
-    """Recompute one gradient step's loss ON PAPER.
+    """Recompute one gradient step's loss ON PAPER (Double DQN rule).
 
     Setup: a batch of ONE looping transition (s' = s, r = +1,
     alive). Then, by hand, from the nets' own current outputs:
 
-        Q(s,a)    = online(s)[0]                  (captured BEFORE
-        max Q(s') = target(s).max()               the step touches
-        target    = 1 + 0.99 * max Q(s')          the weights)
-        loss      = (target - Q(s,a))^2
+        Q(s,a)  = online(s)[0]                  (captured BEFORE
+        a*      = online(s).argmax()            the step touches
+        target  = 1 + 0.99 * target(s)[a*]      the weights)
+        loss    = (target - Q(s,a))^2
 
     The returned loss must equal this to 1e-6. If the formula, the
-    gather() (column of the taken action), or the frozen-target
-    split drift, this check screams.
+    gather()/argmax() split (which net PICKS vs which net VALUES),
+    or the frozen-target split drift, this check screams.
     """
     agent = DQNAgent(batch_size=4, target_sync=10 ** 9, seed=0)
     x = torch.tensor([agent_normalize(STOCK_STATE)], dtype=torch.float32)
     with torch.no_grad():
-        q_before = float(agent.online(x)[0][0])       # action 0 column
-        max_next = float(agent.target(x).max())       # frozen net
+        q_before = float(agent.online(x)[0][0])         # action 0 column
+        a_star = int(agent.online(x)[0].argmax())       # online PICKS
+        value_next = float(agent.target(x)[0][a_star])  # frozen VALUES
 
     loss = agent.train_step([(STOCK_STATE, 0, 1.0, STOCK_STATE, False)])
 
-    target = 1.0 + agent.gamma * max_next
+    target = 1.0 + agent.gamma * value_next
     manual = (target - q_before) ** 2
     assert math.isclose(loss, manual, abs_tol=1e-6), \
         f"returned {loss} vs hand-recomputed {manual}"
-    print(f"  TD loss hand-recomputed: {loss:.6f} == (target - Q)^2")
+    print(f"  TD loss hand-recomputed: {loss:.6f} == (target - Q)^2, "
+          "Double-DQN split")
 
 
 def test_done_mask_pulls_q_home():
