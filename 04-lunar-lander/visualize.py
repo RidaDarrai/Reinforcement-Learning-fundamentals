@@ -16,9 +16,10 @@ HOW TO READ THEM (the actual lesson):
 
 learning_curves.png — a 2x2 grid:
   top-left     RETURN per episode. Unlike cart-pole ("reward IS
-               steps"), a landing is worth ~+200, a crash at the
-               pad ~0, a crash far away ~-100 — the shaping made
-               distance money. Raw episodes are noisy; trust the
+               steps"), a landing is worth ~+200 while deaths pay
+               a GRADED bill (~-8 for a gentle graze, ~-50 for a
+               meteor) — the shaping made distance money. Raw
+               episodes are noisy; trust the
                bold average AND the exam dots (greedy policy, no
                luck allowed in).
   top-right    LANDING rate, rolling, plus the exams' land rates as
@@ -34,7 +35,7 @@ learning_curves.png — a 2x2 grid:
 
 reward_anatomy.png — two panels:
   left         the three currencies, per episode (moving averages):
-               TERMINAL (+100/-100 events), SHAPING (the banked
+               TERMINAL (a +100 landing, graded death bills), SHAPING (the banked
                distance potential), FUEL (the burn bill). Their sum
                IS the return — train.py asserts that identity, and
                this chart shows it: check that the blue/orange/green
@@ -100,7 +101,7 @@ C_OUT     = {               # outcome colors (the death/life mix)
     "out_of_bounds": "#8d93a1",
     "timeout": "#b8860b",
 }
-C_TERMINAL = "#3b82f6"      # reward anatomy: the +/-100 events
+C_TERMINAL = "#3b82f6"      # reward anatomy: +100 land / graded bills
 C_SHAPING  = "#f59e0b"      # the banked distance potential
 C_FUEL     = "seagreen"     # the burn bill
 C_CRASH    = {              # crash flavors among crashes
@@ -235,7 +236,7 @@ def plot_learning_curves(history, window=100, save_path=None):
         ax_ret.plot(exam_ep, exam_ret, lw=1.6, color=C_EXAM, marker="o",
                     ms=4, label="greedy exams (no luck)")
     ax_ret.axhline(0.0, color="gray", lw=0.8, ls=":")
-    ax_ret.set_title("Return per episode (landing ~ +200, crash ~ -100)")
+    ax_ret.set_title("Return per episode (landing ~ +200; deaths graded)")
     ax_ret.set_ylabel("return")
     ax_ret.legend(loc="lower right", fontsize=8)
 
@@ -325,7 +326,7 @@ def plot_reward_anatomy(history, window=100, save_path=None):
 
     # --- left: the three currencies, moving averages ---------------
     for series, color, label in (
-        (terminal, C_TERMINAL, "terminal (+100 land / -100 death)"),
+        (terminal, C_TERMINAL, "terminal (+100 land / graded death)"),
         (shaping, C_SHAPING, "shaping (banked distance)"),
         (fuel, C_FUEL, "fuel (the burn bill)"),
     ):

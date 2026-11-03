@@ -170,30 +170,68 @@ V_LAND         = 1.0   # m/s — ...but to be SCORED a landing, BOTH legs
 ANGLE_LAND_DEG = 10.0  # deg — level-enough to count as landed.
 ANGLE_LAND = math.radians(ANGLE_LAND_DEG)
 
-LAND_REWARD   = 100.0  # terminal bonus for a good touchdown.
-CRASH_PENALTY = 30.0   # terminal bill for ANY crash (hull, impact,
-                       # missed pad) and for leaving the world.
-                       # TIMEOUT costs 0 — hovering forever pays no
-                       # bonus either (see section 5's hover trap).
-                       #
-                       # RUN 1 POSTMORTEM (3000 episodes, seed 42):
-                       # this was 100, and the run landed ZERO times.
-                       # With a -100 bill larger than the whole
-                       # banked-shaping funnel, every episode ended
-                       # in a bill, the replay corpus never saw a
-                       # positive terminal, and the Q surface decayed
-                       # into a smooth "danger map" with a flat
-                       # action dimension (same value for all four
-                       # buttons). The same medicine 03's DQN took
-                       # mid-project: smaller terminal bills, let the
-                       # tiny rewards teach. -30 keeps the ordering
-                       # land (+200) > hover (~+95) > crash (+35..+75)
-                       # — hovering AT the pad is now a discoverable
-                       # intermediate skill, and slow hover-touch
-                       # accidents are how landings finally enter the
-                       # corpus. See section 5's trap note.
+LAND_REWARD = 100.0    # terminal bonus for a good touchdown.
+
+# --- THE DEATH BILL, now GRADED (run 2's lesson) -------------------
+# A crash is not one event: it is death AT A SPEED, AT AN ATTITUDE.
+# Two official runs taught this the hard way:
+#   RUN 1 (flat -100 bill): every episode ended in the bill, the
+#     replay corpus never saw a positive terminal, and the Q surface
+#     decayed into a smooth "danger map" with a flat action
+#     dimension. Medicine: shrink the bill (03's lesson again).
+#   RUN 2 (flat -30 bill): 3000 episodes, land rate STILL 0%, exam
+#     returns all positive (+40..+58) — this time improved, not
+#     fixed. The probe found the graduate arriving at a MEDIAN
+#     speed of 14.7 m/s (free-fall from 70 m is ~15.1: it stopped
+#     braking) and a MEDIAN wrapped tilt of 2.6 rad (869 deg of
+#     spin) — because a flat bill prices a 15 m/s meteor EXACTLY
+#     like a 1 m/s graze. No money anywhere on being gentle, and
+#     rotation (a 0.005/tick cough vs IDLE's free) drifted to 59%
+#     of the graduate's actions near the ground.
+# The bill is now priced on the SAME quantities the touchdown rules
+# already read:
+#     bill = -(BASE + PER_SPEED * speed + PER_TILT * wrapped |tilt|)
+# speed = hypot(vx, vy) (the impact rule's own number, so physics
+# and price can never split); the tilt folds into [0, pi], so 869
+# degrees of spin reads as "a bit past level", not "eight hundred
+# degrees worse". Hand values: a level 1 m/s graze -7.5, the meteor
+# arrival about -50 wherever it lands — a real gradient toward
+# slow, level arrivals, paid ONCE at the fatal tick (never as
+# per-tick nagging; 03's hammer-blow lesson). TIMEOUT still costs
+# 0 — hovering forever pays no bonus either (section 5's trap).
+# Every number here is pinned in test_environment.py.
+CRASH_BASE      = 5.0    # flat fee for dying at all, any flavor
+CRASH_PER_SPEED = 2.5    # + per m/s of COM speed at the fatal tick
+CRASH_PER_TILT  = 4.0    # + per radian of wrapped |tilt| (0..pi)
+# Sanity ceiling: the worst legal death (a full-tilt meteor) pays
+# about -(5 + 2.5*16 + 4*pi) ~ -68 — always milder than run 1's
+# flat -100, and never able to drown landing's +100 prize.
 
 DEATH_REASONS = ("landed", "crashed", "out_of_bounds", "timeout")
+
+
+def crash_bill(vx, vy, theta):
+    """The graded terminal bill for ANY way of dying (section 4).
+
+    Args: vx, vy — COM speeds at the fatal tick; hypot(vx, vy) is
+                    the SAME number the impact rule reads, so the
+                    physics and the price never split.
+          theta  — the tilt at the fatal tick (raw and continuous:
+                   a spinning lander wraps through mod-2pi HERE,
+                   so step() can keep raw theta and the bill still
+                   reads ATTITUDE, not lap count).
+
+    Returns: NEGATIVE money (the step's terminal component). One
+    function serves hull / impact / missed_pad AND out-of-bounds —
+    the death flavors differ in the coroner's report, not in the
+    physics that prices them.
+    """
+    turn = abs(math.fmod(theta, 2.0 * math.pi))   # fold into [0, 2pi)
+    if turn > math.pi:                            # then into [0, pi]
+        turn = 2.0 * math.pi - turn
+    return -(CRASH_BASE
+             + CRASH_PER_SPEED * math.hypot(vx, vy)
+             + CRASH_PER_TILT * turn)
 
 
 # ==============================================================
@@ -202,7 +240,8 @@ DEATH_REASONS = ("landed", "crashed", "out_of_bounds", "timeout")
 # reward(step) = terminal + shaping + fuel, all three reported in
 # info["components"] so training logs can chart them separately.
 #
-# 1) TERMINAL — the honest ±100 events (land / crash / OOB).
+# 1) TERMINAL — landed +100; every death pays the GRADED bill of
+#    section 4 (run 2's lesson); timeout pays 0.
 # 2) SHAPING — potential-based: the agent is paid BACK for the
 #    distance it closes toward the pad, charged for opening it:
 #
@@ -216,29 +255,30 @@ DEATH_REASONS = ("landed", "crashed", "out_of_bounds", "timeout")
 #    test_shaping_telescopes. Spawn sits ~70–76 m out → Φ(start) is
 #    about -105..-114; landed COM sits ~1.6 m up → Φ(land) ≈ -2.4.
 #    So a good landing BANKS ≈ +103..+112 of shaping, and returns
-#    (after run 1's retune, crash bill -30) look like:
-#        land            ≈ +200
-#        hover the clock ≈ +95   <- the escape hatch, see below
-#        crash near pad  ≈ +75   (-30 bill + nearly full bank)
-#        crash far       ≈ +35   (-30 bill + partial bank)
-#    The gradient still says: get down there — but now even mediocre
-#    outcomes bank money, so there is a graded path of increasing
-#    value instead of everything-but-landing ending in a -100 bill.
+#    (death bills graded, section 4) order out like:
+#        land                    ≈ +200
+#        hover the clock         ≈ +90   <- the escape hatch
+#        gentle graze at the pad ≈ +90   (-8..-14 bill + full bank)
+#        meteor arrival          ≈ +30..+55
+#    The gradient says TWICE as much now: get down there (the
+#    funnel) AND get down gently (the graded bill). Mediocrity
+#    banks money; only humility climbs past it.
 #
-#    KNOWN TRAP, flagged up front: hovering at the pad banks the
-#    potential once and then sits idle — worth ~+95. That in-
-#    between reward is the POINT (run 1's lesson): it is strictly
-#    better than crashing (+35..75) and strictly worse than landing
-#    (+200), so the policy should descend, hover to survive, and
-#    then be pulled upward toward real touchdowns by landing's
-#    bigger prize. If a rerun goes timeout-heavy instead, the next
-#    knob is a small timeout bill — tuned with data, not guessed.
+#    KNOWN TRAPS, updated by the official runs:
+#    - run 1: the flat -100 bill drowned the funnel (section 4).
+#    - run 2: the flat -30 bill made hover and gentle crashing the
+#      two best mediocre lives but paid braking NOTHING, so the
+#      policy stayed a meteor. The graded bill is that fix. If run
+#      3 instead goes timeout-heavy (hover-the-clock wins too
+#      often), the next knob is a small timeout bill — tuned with
+#      data, not guessed.
 #
 # 3) FUEL — score cost per ENGINE-BURNING tick. No tank, no dry-out
 #    failure: fuel is money, not oxygen (one less death mode to
 #    test). Magnitudes are small on purpose: a whole-episode full
-#    burn costs 20 — real pressure, never bigger than the ±100 bills
-#    (03's lesson: shaping via hammer blows breaks DQN gradients).
+#    burn costs 20 — real pressure, never bigger than the terminal
+#    bills (03's lesson: shaping via hammer blows breaks DQN
+#    gradients).
 SHAPING_SCALE = 150.0   # A — full money for closing 100 m.
 SHAPING_NORM  = 100.0   # m — distance that counts as "the whole way".
 FUEL_MAIN = 0.02        # per tick of main burn
@@ -432,6 +472,12 @@ class LunarLander:
             return (self.x + bx * cos_t - by * sin_t,
                     self.y + bx * sin_t + by * cos_t)
 
+        # The ONE graded death bill for this tick (run 2's lesson),
+        # computed HERE so every branch below prices death with the
+        # same speeds/attitude the physics just produced — no branch
+        # can forget the grading.
+        bill = crash_bill(self.vx, self.vy, self.theta)
+
         terminal = 0.0
         reason = None
         crash_type = None             # fine-grained crash flavor for
@@ -443,12 +489,12 @@ class LunarLander:
         #     Edges are STRICT: exactly ON the boundary is still in.)
         if (self.x < -WORLD_HALF_WIDTH or self.x > WORLD_HALF_WIDTH
                 or self.y > CEILING_Y):
-            terminal, reason = -CRASH_PENALTY, "out_of_bounds"
+            terminal, reason = bill, "out_of_bounds"
 
         # 2b. Belly on the ground? Any hull corner below 0 = the ship's
         #     BODY hit dirt — game over no matter how gently.
         elif any(to_world(bx, by)[1] < 0.0 for bx, by in HULL_CORNERS):
-            terminal, reason = -CRASH_PENALTY, "crashed"
+            terminal, reason = bill, "crashed"
             crash_type = "hull"
 
         # 2c. Feet on the ground: each tip poking below 0 is contact.
@@ -469,7 +515,7 @@ class LunarLander:
                     else:
                         setattr(self, f"leg_{which}", 1)  # soft tick
             if missed or hard:
-                terminal, reason = -CRASH_PENALTY, "crashed"
+                terminal, reason = bill, "crashed"
                 crash_type = "missed_pad" if missed else "impact"
             # 2d. BOTH feet ticked, slow and level? That is a landing —
             #     scored THIS tick, legs possibly a bit buried.
@@ -606,7 +652,8 @@ if __name__ == "__main__":
           f"| episode cap: {MAX_STEPS} ticks = {MAX_STEPS * DT:.0f} s")
     print(f"speed rules: land <= {V_LAND}, touch survives <= "
           f"{V_IMPACT}, level <= {ANGLE_LAND_DEG} deg | "
-          f"bill: land {+LAND_REWARD:+.0f}, crash {-CRASH_PENALTY:+.0f}")
+          f"bills: land {+LAND_REWARD:+.0f}; crash = -({CRASH_BASE} "
+          f"+ {CRASH_PER_SPEED}*speed + {CRASH_PER_TILT}*tilt)")
 
     # --- pose A: plain free fall (three ticks) -----------------------
     env = LunarLander(seed=0)
@@ -651,7 +698,7 @@ if __name__ == "__main__":
         state, reward, done, info = env.step(IDLE)
         print(f"\n=== {name}: {why} ===")
         print(f"reason={info['reason']!r} ({info['crash_type']}), "
-              f"terminal bill {info['components']['terminal']:+.0f}, "
+              f"terminal bill {info['components']['terminal']:+.1f}, "
               f"reward {reward:+.3f}")
         env.render()
 

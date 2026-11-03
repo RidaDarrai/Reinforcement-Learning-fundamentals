@@ -28,7 +28,7 @@ from environment import (
     HULL_CORNERS, LEG_JOINTS, LEG_TIPS,
     SPAWN_ALTITUDE, SPAWN_X_RANGE, SPAWN_VX_RANGE, SPAWN_VY_RANGE,
     V_IMPACT, V_LAND, ANGLE_LAND_DEG,
-    LAND_REWARD, CRASH_PENALTY,
+    LAND_REWARD, CRASH_BASE, CRASH_PER_SPEED, CRASH_PER_TILT, crash_bill,
     SHAPING_SCALE, SHAPING_NORM, FUEL_MAIN, FUEL_SIDE,
     STATE_SCALE, normalize_state,
 )
@@ -316,6 +316,31 @@ def test_recovery_band_save():
           f"buried to COM y={env.y:.3f} m")
 
 
+def test_crash_bill_graded_pins_and_folds():
+    """The graded death bill directly (run 2's lesson): hand values
+    for the base+speed+tilt price, and the FOLD that makes 869 deg
+    of spin cost the same as its 149 deg attitude — priced on
+    attitude, never on lap count."""
+    # Hand values, level (the home row of the price sheet):
+    assert math.isclose(crash_bill(0.0, 0.0, 0.0), -5.0, abs_tol=1e-12)
+    assert math.isclose(crash_bill(0.0, -1.0, 0.0), -7.5, abs_tol=1e-12)
+    assert math.isclose(crash_bill(0.0, -15.0, 0.0), -42.5, abs_tol=1e-12)
+    # Speed is hypot — the impact rule's own quantity:
+    assert math.isclose(crash_bill(3.0, 4.0, 0.0), -17.5, abs_tol=1e-12)
+    # Tilt folds into [0, pi]: quarter-turn costs -(5 + 4*pi/2).
+    assert math.isclose(crash_bill(0.0, 0.0, math.pi / 2),
+                        -(5.0 + 4.0 * math.pi / 2), abs_tol=1e-12)
+    # 4.4 rad is PAST half a turn -> folds the long way around:
+    assert math.isclose(crash_bill(0.0, 0.0, 4.4),
+                        -(5.0 + 4.0 * (2.0 * math.pi - 4.4)), abs_tol=1e-12)
+    # Attitude, not lap count: -15.17 rad (869 deg of spin) equals
+    # the same attitude shifted by two full turns.
+    assert math.isclose(crash_bill(0.0, 0.0, -15.17),
+                        crash_bill(0.0, 0.0, -15.17 + 4.0 * math.pi),
+                        abs_tol=1e-12)
+    print("  graded crash bill: base + speed + folded tilt, hand-pinned")
+
+
 def test_hard_impact_crash():
     """Faster than V_IMPACT at the tick a leg touches = rubble."""
     env = LunarLander(seed=0)
@@ -324,14 +349,19 @@ def test_hard_impact_crash():
 
     assert done and info["reason"] == "crashed"
     assert info["crash_type"] == "impact"
-    assert info["components"]["terminal"] == -CRASH_PENALTY == -30.0
     assert env.leg_l == 0 and env.leg_r == 0, "dead feet tick nothing"
-    # The bill is -30, but the tick still banked a hair of positive
-    # shaping (it was falling TOWARD the pad), so the total sits just
-    # above -30 — verified exactly in the fuel/composition test.
-    assert -30.0 < reward < -29.0
+    # The GRADED bill (run 2's lesson), by hand: level, vx = 0, and
+    # vy after the tick = -3.0 - 1.62*0.02 = -3.0324 (also the printed
+    # impact speed), so:
+    #     bill    = -(5 + 2.5*3.0324) = -12.5810
+    #     shaping = 1.5*(1.6 - y_after), y_after = 1.6 - 3.0324*0.02
+    #             = +0.090972
+    #     reward  = -12.5810 + 0.090972 = -12.4900
+    assert math.isclose(info["components"]["terminal"], -12.581,
+                        abs_tol=1e-9)
+    assert math.isclose(reward, -12.490028, abs_tol=1e-6)
     print(f"  hard impact: speed {-state[3]:.2f} > {V_IMPACT} -> "
-          f"crashed, bill {info['components']['terminal']:+.0f}")
+          f"crashed, graded bill {info['components']['terminal']:+.2f}")
 
 
 def test_missed_pad_crash():
@@ -343,7 +373,10 @@ def test_missed_pad_crash():
 
     assert done and info["reason"] == "crashed"
     assert info["crash_type"] == "missed_pad"
-    assert info["components"]["terminal"] == -30.0
+    # Graded bill by hand: vy after the tick = -0.5 - 1.62*0.02
+    # = -0.5324 (level, vx = 0), so bill = -(5 + 2.5*0.5324) = -6.331.
+    assert math.isclose(info["components"]["terminal"], -6.331,
+                        abs_tol=1e-9)
 
     env = LunarLander(seed=0)
     _at(env, x=13.0, y=1.60, vy=-0.5)   # tips at 11.4 / 14.6: inside!
@@ -362,7 +395,10 @@ def test_hull_crash_and_precedence():
 
     assert done and info["reason"] == "crashed"
     assert info["crash_type"] == "hull"
-    assert info["components"]["terminal"] == -30.0
+    # Graded bill by hand: this pose was dropped from rest, so after
+    # one tick vy = -1.62*0.02 = -0.0324 -> bill = -(5 + 0.081) = -5.081.
+    assert math.isclose(info["components"]["terminal"], -5.081,
+                        abs_tol=1e-9)
     # Precedence proof: in this pose BOTH feet are ticked and every
     # landing inequality would pass — the hull check won anyway.
     assert env.leg_l == 0 and env.leg_r == 0, "crash preempts flags"
@@ -376,7 +412,10 @@ def test_out_of_bounds_and_edges():
     _at(env, x=WORLD_HALF_WIDTH + 0.5)
     state, reward, done, info = env.step(IDLE)
     assert done and info["reason"] == "out_of_bounds"
-    assert info["components"]["terminal"] == -30.0
+    # OOB shares the graded bill: this pose falls dead-vertical for
+    # one tick -> speed 0.0324 -> -(5 + 2.5*0.0324) = -5.081.
+    assert math.isclose(info["components"]["terminal"], -5.081,
+                        abs_tol=1e-9)
 
     env = LunarLander(seed=0)
     _at(env, x=WORLD_HALF_WIDTH)            # exactly on the edge
@@ -601,6 +640,7 @@ if __name__ == "__main__":
         test_slow_two_leg_touch_lands,
         test_recovery_band_save,
         test_hard_impact_crash,
+        test_crash_bill_graded_pins_and_folds,
         test_missed_pad_crash,
         test_hull_crash_and_precedence,
         test_out_of_bounds_and_edges,
