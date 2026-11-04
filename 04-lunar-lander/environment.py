@@ -80,6 +80,12 @@ DT = 0.02               # s per tick of the physics clock (50 ticks/s).
                         # 1000 steps = 20 s of flight — a hover stays
                         # under it; a 'never land' policy times out.
 MAX_STEPS = 1000        # episode cap (see timeout in section 4).
+                        # RUN-5 RETUNE: a mid-flight 1000 -> 2000
+                        # experiment (working copy, uncommitted) was
+                        # REVERTED: the diagnosis is stall-and-crawl,
+                        # not ran-out-of-room — a longer cap just
+                        # charges the stall more fuel money. If run 6
+                        # still stalls, revisit WITH data.
 
 GRAVITY = 1.62          # m/s² — the real Moon's pull (1/6 of Earth's).
                         # Crime of the classic arcade: fake heavy
@@ -262,9 +268,9 @@ def crash_bill(vx, vy, theta):
 # info["components"] so training logs can chart them separately.
 #
 # 1) TERMINAL — landed +100; every death pays the GRADED bill of
-#    section 4 (run 2's lesson); timeout now pays TIMEOUT_BILL
-#    (run 4's lesson: a FREE timeout made hovering the clock a
-#    bankable mediocre life — Gym pays you nothing for stalling).
+#    section 4 (run 2's lesson); timeout pays TIMEOUT_BILL (run 4's
+#    lesson: a FREE timeout made hovering the clock a bankable life;
+#    run 5's lesson: -20 was still too mild — the stall won anyway).
 #
 # 2) SHAPING — potential-based on the FULL STATE (run 4's secret):
 #
@@ -281,9 +287,14 @@ def crash_bill(vx, vy, theta):
 #    MLP's fitting noise, while gentleness was only priced
 #    POSTHUMOUSLY, on the fatal tick. The fix is Gym's: pay the
 #    gradient WHERE THE DECISION HAPPENS. A main-engine tick's
-#    Δv of 0.0656 m/s is now worth 15.0 * 0.0656 ≈ 1.0 of instant
+#    Δv of 0.0656 m/s is worth 10.0 * 0.0656 ≈ 0.66 of instant
 #    money — well clear of the noise — and every tick of drift
 #    (speed, tilt) starts ticking the meter the same way.
+#    RUN-5 RETUNE (15 → 10 in SPEED_MONEY): at 15 the descent
+#    blood outweighed the banked payoff, so the brain stalled over
+#    the pad in touchdown posture from tick 0 and timed out 1,260
+#    of 3,000 episodes; 10 keeps braking marked while letting a
+#    brisk, braked approach profit.
 #
 #    Because Φ is a state function, everything still TELESCOPES:
 #    mid-way fees cancel, an episode's total shaping is exactly
@@ -292,17 +303,20 @@ def crash_bill(vx, vy, theta):
 #    ladder hand values (spawn at (0,70) at rest: Φ = -1.5*70 =
 #    exactly -105.0, the one old pin that survives):
 #        land (slow, level, light fuel)    ≈ +215   terminal +100
-#            + ~+105 banked (the old +103 minus tucked-in speed
-#            money), fuel nibbles a little back
-#        hover the clock                   ≈ -150..-170  holding
-#            ~70 m up costs ~1/3-duty mains * 0.30/tick (~-100)
-#            + TIMEOUT_BILL -20 — the escape hatch is PRICED OUT
-#        meteor (do nothing from 70 m)     ≈ -165   bill ~-45
-#            + speed blood: Φ builds -15 per m/s during the fall,
-#            and only refund what you remove
-#    The gradient says TWICE as much now: get down there (the
-#    funnel), get down GENTLY (speed and tilt money, paid every
-#    tick they change), and don't just loiter (fuel + timeout).
+#            + ~+105 banked (dist closed whole-way), speed money
+#            nets out (built then refunded), fuel nibbles back
+#        gentle graze at the pad           ≈ +85    bank ~+100,
+#            small speed blood, small graded bill — still good
+#        hover/crawl the clock             ≈ -161 OBSERVED (run 5):
+#            ~1/3-duty holding fuel ~-110 + TIMEOUT_BILL -60 —
+#            now clearly the worst non-death ending
+#        meteor (do nothing from 70 m)     ≈ -90    bill ~-45
+#            + speed blood: Φ builds -10 per m/s during the fall;
+#            braking refunds what it removes
+#    The gradient now points the RIGHT way after each milepost:
+#    descend progressively (dist bank), brake before the ground
+#    (speed money refunds), level out (tilt money), and FINISH —
+#    stalling pays, dying gently pays less, landing pays most.
 #
 #    KNOWN TRAPS, updated by the official runs:
 #    - run 1 (flat -100 bill): the bill drowned the funnel — the
@@ -314,8 +328,15 @@ def crash_bill(vx, vy, theta):
 #      fight, but hit a ceiling: speed/tilt still cost money only
 #      at DEATH, angular authority was ~10x too weak, and a free
 #      timeout left hover-the-clock as the least-bad life. That
-#      full diagnosis is THIS retune: full-state Φ, priced
+#      full diagnosis was the run-4 retune: full-state Φ, priced
 #      timeout, real fuel, wider scoring band, strong thrusters.
+#    - run 5 (first run on the Gym anatomy, brain frozen): 0
+#      landings BUT the behavior improved (it now survives,
+#      descends, brakes — and does "touchdown from tick 0"
+#      crawls). Data verdict: timeout -20 too mild (1,260/3,000
+#      stalls; exams DEGRADED after ep 100) and speed blood at 15
+#      made descending cost more than crawling. THIS retune:
+#      TIMEOUT_BILL -20 -> -60, SPEED_MONEY 15 -> 10.
 #    - NOT touched on purpose: spawn scatter stays 70 m up, x in
 #      +/-30 (SPAWN_ALTITUDE / SPAWN_X_RANGE) — navigation keeps
 #      its difficulty; the dense shaping + priced timeout should
@@ -335,21 +356,34 @@ def crash_bill(vx, vy, theta):
 #    surprise. (Run 1's 0.02/0.005 prices were decoration.)
 SHAPING_SCALE = 150.0   # A — full money for closing 100 m.
 SHAPING_NORM  = 100.0   # m — distance that counts as "the whole way".
-SPEED_MONEY = 15.0      # per m/s of COM speed, inside Φ. Gym pays
-                        # ~13-20 points per m/s of speed removed —
-                        # 15 sits mid-band at OUR +100 scale. Braking
-                        # from 15 m/s banks up to +225; one brake tick
-                        # from 3 m/s pays ~1.0 (see potential()).
+SPEED_MONEY = 10.0      # per m/s of COM speed, inside Φ. Gym pays
+                        # ~13-20 points per m/s removed; run 5 first
+                        # tried 15 and the tax BACKFIRED: descents
+                        # bled more money than the banked payoff, so
+                        # the policy sat over the pad crawling in
+                        # touchdown posture from tick 0 and 1,260 of
+                        # 3,000 episodes died of the clock (the best
+                        # exam was a 1,000-tick hover at -88). 10
+                        # keeps one brake tick worth 10*0.0656 ~ 0.66
+                        # — still well above Q-fitting noise
+                        # (~0.2-0.3), so braking stays marked —
+                        # while a brisk, braked approach profits.
+                        # Braking from 15 m/s banks up to +150.
 TILT_MONEY  = 10.0      # per wrapped radian of tilt, inside Φ (same
                         # [0, pi] fold as crash_bill, same attitude
                         # semantics). Leveling from flat-on-side
                         # banks ~+16; a full thruster tap tilts only
                         # 0.0024 rad — costs 2.4e-5, a rounding error
                         # for precision flying.
-TIMEOUT_BILL = -20.0    # terminal money on the timeout tick — the
-                        # priced-out escape hatch. Soft enough to
-                        # never drown a death bill, hard enough that
-                        # +90-shaping hovering stops being a life.
+TIMEOUT_BILL = -60.0    # terminal money on the timeout tick — the
+                        # priced-out escape hatch. RUN-5 RETUNE: -20
+                        # was proven too mild — holding fuel (~-110
+                        # per stalled clock) + -20 still beat every
+                        # bleeding descent, so the stall won. -60
+                        # sits just under the worst legal death
+                        # (~-68): dying softly is still cheaper than
+                        # stalling, but waiting is now the worst
+                        # non-death ending and never a life.
 FUEL_MAIN = 0.30        # per tick of main burn (was 0.02 — Gym's
                         # price exactly; hover-the-clock there ~-170)
 FUEL_SIDE = 0.03        # per tick of either side thruster (was
@@ -459,9 +493,11 @@ class LunarLander:
         lesson, the Gym secret): distance — the navigation funnel,
         1.5 money per meter as before; speed — braking money, Gym
         pays ~13-20 points per m/s removed, and a main-engine tick's
-        Δv of 0.0656 m/s is worth ~1.0 HERE, comfortably above the
-        MLP's Q-fitting noise (~0.2-0.3) that drowned the old
-        posthumous-only pricing; tilt — leveling money, folded into
+        Δv of 0.0656 m/s is worth 10.0 * 0.0656 ≈ 0.66 HERE,
+        comfortably above the MLP's Q-fitting noise (~0.2-0.3) that
+        drowned the old posthumous-only pricing (RUN-5 RETUNE: was
+        15 — descent blood outweighed the bank and the brain
+        stalled; see section 5); tilt — leveling money, folded into
         [0, pi] the SAME way crash_bill() reads attitude, so 869
         degrees of spin costs like "a bit past level", not 869
         degrees worse. Because Φ is a STATE function, every term

@@ -86,32 +86,37 @@ tick so the charts can never lie about money.
 - **TERMINAL**: landed **+100**; every death pays a **graded
   bill** (run 2's postmortem below): `−(5 + 2.5·speed + 4·tilt)`
   — a gentle 1 m/s graze ≈ −8, a 15 m/s meteor ≈ −50, spinning
-  extra on top; hovering out the 1,000-tick clock now pays the
-  **TIMEOUT_BILL = −20** (run-4 retune — it used to be free, and
-  hover-the-clock was the best mediocre life).
+  extra on top; hovering out the 1,000-tick clock pays the
+  **TIMEOUT_BILL = −60** (run-5 retune — it began free, run-4
+  priced it at −20, and run 5 proved −20 too mild: 1,260 of 3,000
+  episodes still stalled out the clock).
 - **SHAPING**: potential-based on the FULL state (run-4 retune —
   formerly distance-only):
-  `Φ(s) = −1.5·dist/100 − 15·speed − 10·|wrapped tilt|`, paid as
+  `Φ(s) = −1.5·dist/100 − 10·speed − 10·|wrapped tilt|`, paid as
   DIFFERENCES that **telescope**: the whole episode's shaping is
   exactly `Φ(end) − Φ(start)` — one hand-checkable number. Spawn
   at rest holds the old pin exactly: Φ = −1.5·70 = **−105.0**.
-  Why speed/tilt joined: four runs' probes showed the marginal
-  value of ONE braking tick (~0.1–0.3 Q) sitting inside the MLP's
-  fitting noise — so braking was never marked for itself. Now a
-  brake tick's Δv of 0.0656 m/s pays ~1.0 THAT tick, and hovering
-  at constant speed pays 0: only CHANGES of speed/tilt cost or
-  pay.
+  Why speed/tilt joined: probes showed the marginal value of ONE
+  braking tick sitting inside the MLP's fitting noise — so braking
+  was never marked for itself. Now a brake tick's Δv of 0.0656 m/s
+  pays ~0.66 THAT tick, and hovering at constant speed pays 0:
+  only CHANGES of speed/tilt cost or pay. (Run-5 retune: the
+  speed term started at 15·speed, but run 5's probe showed the
+  descent blood outweighed the banked payoff — the brain responded
+  by never falling fast at all — so it dropped to 10.)
 - **FUEL**: −0.30 per main-burn tick, −0.03 per side tick — Gym's
   real prices (run-4 retune; was 0.02/0.005 decoration). Money,
   not oxygen — no tank to run dry.
 
-With the retuned anatomy the ladder finally runs ALL THE WAY DOWN:
+After both retunes the ladder finally runs ALL THE WAY DOWN:
 **land ≈ +215** (terminal +100 + ~105 banked shaping, fuel
-nibbling) **> meteor ≈ −165** (bill ~−45 + speed blood:
-Φ builds −15 per m/s during the fall) **≈ hover-the-clock ≈
-−150..−170** (holding 70 m costs ~⅓-duty mains × 0.30/tick +
-the −20 timeout bill). The escape hatch is priced out; two club
-members were expelled. See the run-4 verdict below.
+nibbling) **> gentle graze ≈ +85** (small blood, small bill) **>
+meteor ≈ −90** (bill ~−45 + speed blood: Φ builds −10 per m/s
+during the fall) **> hover-the-clock ≈ −161** (duty-cycle holding
+fuel ~−110 + the −60 timeout bill — observed, not guessed: run 5
+timed-out lives averaged −161). Two knobs got the hatch priced
+out; a third (speed blood) got lowered to make descending
+actually profitable. See the run-5 verdict below.
 
 ## Important concepts (the new ones this project taught me)
 
@@ -248,11 +253,12 @@ Missing `dqn_model.pt`? TRAINED trains a quick course right
 there (~1 min, writes `quick_course.pt`, never the official
 run's artifacts).
 
-> **Run status**: the official-`dqn_model.pt` slot is currently
-> EMPTY of a working graduate — four 3,000-episode runs (seed 42)
-> all landed 0%. Their logs and brains are backed up
-> (`training_log_run1..4.json` / `dqn_model_run1..4.pt`); run 5
-> will be the first to train on the retuned world.
+> **Run status**: no working graduate yet — five 3,000-episode
+> runs (seed 42) all landed 0%, but the trajectory of BEHAVIOR is
+> upward (meteor → fighter → survivor). Logs and brains of runs
+> 1–5 are backed up (`training_log_run1..5.json` /
+> `dqn_model_run1..5.pt`). Run 6 trains on the run-5 retune below
+> (timeout −60, speed money 10).
 
 ## How I check that it actually learned
 
@@ -378,6 +384,43 @@ survives unchanged). The new outcome ladder, hand-checked:
 **land ≈ +215** > deaths (meteor ≈ −165, gentle graze ≈ −15) >
 **hover-the-clock ≈ −150..−170** — for the first time the ladder
 runs all the way down, so "live poorly forever" pays worst.
+
+### Run 5 (first run on the Gym anatomy): the survivor's trap
+
+On-paper verdict: still 0 landings — but read the numbers before
+judging. 1,260/3,000 episodes TIMED OUT (vs 1 in run 4); the
+other endings: 913 crashed, 827 OOB. Behaviorally this is the
+best pilot yet: it now survives, descends, brakes, and does
+"touchdown from tick 0" crawls — kill vertical speed at spawn,
+drift down gently, legs ready. Two diagnoses from the diary:
+
+- **Timeout −20 lost its contest.** A stalled life pays holding
+  fuel (~−110 over 1,000 ticks at the observed ~37% duty) + −20 
+  ≈ −161 ... and that still beats everything else the policy
+  could reliably do (its descents averaged −243 while bleeding
+  speed blood, its OOB lives −163). Insultingly: the BEST exam of
+  the whole run (−88.56, ep 100) was a full 1,000-tick hover —
+  and exams DEGRADED after that (−256 by ep 3000), the classic
+  signature of a stable bad equilibrium, not an unfinished one.
+- **Speed blood at 15 made descending unprofitable.** The dist
+  bank (+105 spread over the whole descent) could not compete
+  with −15 per m/s banked against every fall — so the crawl
+  beat the descent.
+
+### The run-5 retune (run 6): two knobs, same frozen brain
+
+| Knob | Was | Now | Why |
+|------|-----|-----|-----|
+| TIMEOUT_BILL | −20 | −60 | the clock must be the WORST non-death; −20 lost every contest of run 5 |
+| SPEED_MONEY | 15 | 10 | descent blood outweighed the bank → crawl equilibrium; 10 keeps a brake tick worth ~0.66 (≈ 2–3× Q noise) while a brisk braked descent profits |
+
+Unchanged on purpose: fuel 0.30/0.03, V_LAND 1.5 / 15°, tilt
+money 10, spawn 70/30, MAX_STEPS 1000 (a mid-flight 2000 experiment in
+the working copy was REVERTED — the moon is a stall problem, not a
+length problem; longer caps charge the stall MORE fuel). Every
+re-pinned number is hand-derived in `test_environment.py`; ladder
+after this retune: **land ≈ +215 > graze ≈ +85 > meteor ≈ −90 >
+stall ≈ −161**.
 
 ## Things that surprised me
 

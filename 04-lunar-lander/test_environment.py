@@ -169,13 +169,13 @@ def test_gravity_free_fall():
     assert abs(state[1] - 69.999352) < 1e-12
     assert state[0] == 0.0 and state[2] == 0.0
     assert info["components"]["fuel"] == 0.0, "IDLE is free"
-    # RUN-4 RETUNE money, by hand: the dist term still pays for
+    # RUN-5 RETUNE money, by hand: the dist term still pays for
     # closing, +1.5*0.000648 = +0.000972, but the full-state Φ now
-    # BILLS the fresh fall speed: -SPEED_MONEY*0.0324 = -0.486.
-    # shaping = 0.000972 - 0.486 = -0.485028, and with no terminal
+    # BILLS the fresh fall speed: -SPEED_MONEY*0.0324 = -0.324.
+    # shaping = 0.000972 - 0.324 = -0.323028, and with no terminal
     # and no fuel, reward == shaping: gaining speed costs money
     # THIS tick, not just on the posthumous bill.
-    assert math.isclose(reward, -0.485028, abs_tol=1e-9), f"{reward=}"
+    assert math.isclose(reward, -0.323028, abs_tol=1e-9), f"{reward=}"
     assert reward < 0.0, "gaining fall speed bills, even gliding down"
     print(f"  free fall: vy={state[3]:+.6f} m/s, y={state[1]:.6f} m, "
           f"reward={reward:+.6f}")
@@ -283,11 +283,11 @@ def test_left_leg_only_contact():
 def test_slow_two_leg_touch_lands():
     """Both feet down, slow and level = scored, +100 terminal, done.
 
-    The tick's own money, by hand (RUN-4 RETUNE Φ): vy' = -0.5324,
+    The tick's own money, by hand (RUN-5 RETUNE Φ): vy' = -0.5324,
 
-        Φ(after)  = -1.5*1.589352 - 15*0.5324 - 10*0 = -10.370028
-        Φ(before) = -1.5*1.600     - 15*0.5    - 10*0 = -9.900000
-        shaping   = -0.470028   (still moving: speed money is being
+        Φ(after)  = -1.5*1.589352 - 10*0.5324 - 10*0 = -7.708028
+        Φ(before) = -1.5*1.600     - 10*0.5    - 10*0 = -7.400000
+        shaping   = -0.308028   (still moving: speed money is being
                                  rented while dist money is earned)
     """
     assert V_LAND == 1.5 and ANGLE_LAND_DEG == 15.0, \
@@ -302,7 +302,7 @@ def test_slow_two_leg_touch_lands():
     comp = info["components"]
     assert comp["terminal"] == LAND_REWARD == 100.0
     assert comp["fuel"] == 0.0
-    assert math.isclose(reward, 99.529972, abs_tol=1e-9), \
+    assert math.isclose(reward, 99.691972, abs_tol=1e-9), \
         f"terminal +100 plus the tick's shaping: {reward=}"
     print(f"  gentle touchdown done: terminal={comp['terminal']:+.0f}, "
           f"reward={reward:+.3f}")
@@ -379,14 +379,14 @@ def test_hard_impact_crash():
     # impact speed), so:
     #     bill    = -(5 + 2.5*3.0324) = -12.5810   (unchanged)
     #     shaping = Φ(after) − Φ(before)
-    #             = [-1.5*1.539352 - 15*3.0324] - [-1.5*1.6 - 15*3.0]
-    #             = +0.090972 - 0.486 = -0.395028
+    #             = [-1.5*1.539352 - 10*3.0324] - [-1.5*1.6 - 10*3.0]
+    #             = +0.090972 - 0.324 = -0.233028
     #               (dist term pays for closing; the full-state speed
-    #                term bills the tick's fresh speed)
-    #     reward  = -12.5810 - 0.395028 = -12.976028
+    #                term bills the tick's fresh speed; RUN-5: 15 -> 10)
+    #     reward  = -12.5810 - 0.233028 = -12.814028
     assert math.isclose(info["components"]["terminal"], -12.581,
                         abs_tol=1e-9)
-    assert math.isclose(reward, -12.976028, abs_tol=1e-6)
+    assert math.isclose(reward, -12.814028, abs_tol=1e-6)
     print(f"  hard impact: speed {-state[3]:.2f} > {V_IMPACT} -> "
           f"crashed, graded bill {info['components']['terminal']:+.2f}")
 
@@ -404,12 +404,12 @@ def test_missed_pad_crash():
     # = -0.5324 (level, vx = 0), so bill = -(5 + 2.5*0.5324) = -6.331.
     assert math.isclose(info["components"]["terminal"], -6.331,
                         abs_tol=1e-9)
-    # Full-state shaping by hand (RUN-4 RETUNE): the fall only moves
+    # Full-state shaping by hand (RUN-5 RETUNE): the fall only moves
     # y (vx = 0), and at x = 16 the vertical is the SHORT leg of the
     # pad-distance hypot, so the dist term pays just 1.5*(d0 - d1) =
-    # +0.001584 while the speed term bills -15*0.0324 = -0.486:
-    #     shaping = -0.484416, reward = -6.331 - 0.484416 = -6.815416.
-    assert math.isclose(reward, -6.815416, abs_tol=1e-6)
+    # +0.001584 while the speed term bills -10*0.0324 = -0.324:
+    #     shaping = -0.322416, reward = -6.331 - 0.322416 = -6.653416.
+    assert math.isclose(reward, -6.653416, abs_tol=1e-6)
 
     env = LunarLander(seed=0)
     _at(env, x=13.0, y=1.60, vy=-0.5)   # tips at 11.4 / 14.6: inside!
@@ -432,12 +432,12 @@ def test_hull_crash_and_precedence():
     # one tick vy = -1.62*0.02 = -0.0324 -> bill = -(5 + 0.081) = -5.081.
     assert math.isclose(info["components"]["terminal"], -5.081,
                         abs_tol=1e-9)
-    # Full-state shaping by hand (RUN-4 RETUNE): Φ(before) = -1.5*0.55
-    # = -0.825; Φ(after) = -1.5*0.549352 - 15*0.0324 = -1.310028;
-    # shaping = -0.485028 (the very same number as a free-fall tick:
+    # Full-state shaping by hand (RUN-5 RETUNE): Φ(before) = -1.5*0.55
+    # = -0.825; Φ(after) = -1.5*0.549352 - 10*0.0324 = -1.148028;
+    # shaping = -0.323028 (the very same number as a free-fall tick:
     # dist and speed terms changed by identical amounts):
-    #     reward = -5.081 - 0.485028 = -5.566028
-    assert math.isclose(reward, -5.566028, abs_tol=1e-6)
+    #     reward = -5.081 - 0.323028 = -5.404028
+    assert math.isclose(reward, -5.404028, abs_tol=1e-6)
     # Precedence proof: in this pose BOTH feet are ticked and every
     # landing inequality would pass — the hull check won anyway.
     assert env.leg_l == 0 and env.leg_r == 0, "crash preempts flags"
@@ -477,7 +477,8 @@ def test_timeout():
     """A policy that never touches anything gets ended by the clock
     — and the RETUNE prices that end: terminal == TIMEOUT_BILL
     (hover-the-clock was a bankable life in runs 1-4; no longer)."""
-    assert TIMEOUT_BILL == -20.0, "the priced-out escape hatch"
+    assert TIMEOUT_BILL == -60.0, "the priced-out escape hatch, \
+run-5 retune: -20 lost every contest (see environment section 5)"
     env = LunarLander(seed=0, max_steps=5)
     env.reset()
     for i in range(5):
@@ -487,7 +488,7 @@ def test_timeout():
     assert env.steps == 5
     # Sanity: 5 gravity ticks from 70 m cannot reach anything.
     assert env.y > 69.9, "timeout fired, not a floor contact"
-    print("  5 idle ticks -> timeout, terminal -20.0: waiting bills")
+    print("  5 idle ticks -> timeout, terminal -60.0: waiting bills hard")
 
 
 # ---------------------------------------------------------------
@@ -529,14 +530,15 @@ def test_shaping_one_step_hand():
         phi(before) = -150 * 70 / 100 = -105.000 EXACTLY — the one
                       old pin that survives (rest, level: the new
                       speed/tilt terms read zero)
-        phi(after)  = -150*69.999352/100 - 15*0.0324 = -105.485028
-        shaping     = -0.485028 — NEGATIVE now: closing the pad
+        phi(after)  = -150*69.999352/100 - 10*0.0324 = -105.323028
+        shaping     = -0.323028 — NEGATIVE: closing the pad
                       pays +0.000972, but the fresh fall speed
-                      bills 15*0.0324 = -0.486. Falling fast is
+                      bills 10*0.0324 = -0.324. Falling fast is
                       charged ON THE TICK, not at death.
     """
-    assert SPEED_MONEY == 15.0 and TILT_MONEY == 10.0, \
-        "the run-4 deceleration/leveling money (Gym band ~13-20/m/s)"
+    assert SPEED_MONEY == 10.0 and TILT_MONEY == 10.0, \
+        "run-5 retune: 15 taxed descents into a stall; 10 keeps " \
+        "braking paid while a brisk approach profits"
     env = LunarLander(seed=0)
     _at(env, x=0.0, y=70.0)
     phi0 = env.potential()
@@ -546,47 +548,47 @@ def test_shaping_one_step_hand():
     c = info["components"]
     phi1 = env.potential()
     assert abs(c["shaping"] - (phi1 - phi0)) < 1e-12
-    assert abs(c["shaping"] - (-0.485028)) < 1e-9
+    assert abs(c["shaping"] - (-0.323028)) < 1e-9
     assert c["shaping"] < 0.0, "gaining speed while closing = net cost"
-    print(f"  shaping one tick: {c['shaping']:+.6f} (hand: -0.485028)")
+    print(f"  shaping one tick: {c['shaping']:+.6f} (hand: -0.323028)")
 
 
 def test_shaping_sign_both_ways():
     """The full-state Φ pays BOTH gentle ingredients and bills both
     reckless ones. Straight down x=0 makes dist == y, so every case
-    is hand-checkable (RUN-4 RETUNE: braking and leveling earn,
+    is hand-checkable (RUN-5 RETUNE: braking and leveling earn,
 
         MAIN, vy -2.0  -> vy' = -1.9344:
-            delta speed money = 15*0.0656          = +0.984000
+            delta speed money = 10*0.0656          = +0.656000
             delta dist money  = 1.5*0.038688       = +0.058032
-            shaping           = +1.042032  (braking is PAID now —
+            shaping           = +0.714032  (braking is PAID now —
                                 this is the run-4 postmortem fix)
         IDLE, vy -1.0  -> free fall ACCELERATES, vy' = -1.0324:
-            speed money bills -15*0.0324           = -0.486000
+            speed money bills -10*0.0324           = -0.324000
             dist money pays   +1.5*0.020648        = +0.030972
-        -> shaping = -0.455028  (coasting into the ground BILLS)
+        -> shaping = -0.293028  (coasting into the ground BILLS)
 
         IDLE, vy +2.0  -> gravity brakes the climb for free:
-            speed money refunds +15*0.0324         = +0.486000
+            speed money refunds +10*0.0324         = +0.324000
             dist money bills -1.5*0.039352         = -0.059028
-            shaping           = +0.426972 (gravity is a good pilot)
+            shaping           = +0.264972 (gravity is a good pilot)
     """
     env = LunarLander(seed=0)
     _at(env, x=0.0, y=70.0, vy=-2.0)    # falling fast, braking
     _, _, _, info_brake = env.step(MAIN)
-    assert math.isclose(info_brake["components"]["shaping"], 1.042032,
+    assert math.isclose(info_brake["components"]["shaping"], 0.714032,
                         abs_tol=1e-9), "braking must pay, per tick"
 
     env = LunarLander(seed=0)
     _at(env, x=0.0, y=70.0, vy=-1.0)    # coasting, speeding up
     _, _, _, info_fall = env.step(IDLE)
-    assert math.isclose(info_fall["components"]["shaping"], -0.455028,
+    assert math.isclose(info_fall["components"]["shaping"], -0.293028,
                         abs_tol=1e-9), "gaining fall speed must bill"
 
     env = LunarLander(seed=0)
     _at(env, x=0.0, y=70.0, vy=2.0)     # climbing, decelerating
     _, _, _, info_climb = env.step(IDLE)
-    assert math.isclose(info_climb["components"]["shaping"], 0.426972,
+    assert math.isclose(info_climb["components"]["shaping"], 0.264972,
                         abs_tol=1e-9), "shedding speed must, well, pay"
     print("  shaping sign: braking earns, speeding up bills, "
           "gravity's braking is free money")
