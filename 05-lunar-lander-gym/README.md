@@ -14,10 +14,11 @@ agent.py           THE BRAIN - episodic Actor-Critic: policy net +
 train.py           THE SCHOOL - the reference's loop, solve bar
                    and dials, + our diary/exams/diploma conventions
 play.py            THE COCKPIT - watch the TRAINED brain fly on
-                   gym's own rendering, HUD on top
+                   gym's own rendering, HUD + six toggleable
+                   SLIDING telemetry graphs on the side
 visualize.py       THE REPORT CARD - learning curves + policy
                    slices from the diary
-test_*.py          the contracts, pinned by tests (34 checks)
+test_*.py          the contracts, pinned by tests (43 checks)
 ```
 
 ## Why TWO families of brain
@@ -48,9 +49,27 @@ is divided by 20 and reset.
 
 ```bash
 python train.py        # the official school (see the bar above)
-python play.py         # watch the graduate fly (R restart, S toggle)
 python visualize.py    # the report card (or press V in play.py)
 ```
+
+```bash
+python play.py         # the cockpit (screenshot: screenshots/cockpit.png)
+```
+
+The cockpit manual: `R` restart, `S` greedy <-> sampled policy,
+`+`/`-` playback speed (0.5x..4x, 1.0x is real time), `1`..`6` or a
+mouse-click on a chip toggles each of the six telemetry graphs
+(x, y, vx, vy, tilt, leg contact), `V` opens the charts, `ESC` quits.
+Every graph is SLIDING ONLY — a rolling window of the last ~6 s
+(300 ticks) that travels with the replay; whole-run curves belong
+to `visualize.py`. The cockpit's colors are gym's own — sampled
+from a rendered `LunarLander-v3` frame and pinned by tests: black
+sky, white terrain, the lander's purple `(128, 102, 230)` (+ its
+darker outline `(77, 77, 128)`), the flags' yellow `(204, 204, 0)`,
+and the smoke plume's red `(255, 127, 127)` -> grey `(129, 129, 129)`
+fade. Note that this cockpit is a REPLAY player (04's real-time
+HUMAN/TRAINED modes stay 04's, by design: the world is gym's and
+the brain is the show).
 
 ## Status
 
